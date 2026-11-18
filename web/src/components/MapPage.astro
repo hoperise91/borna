@@ -214,6 +214,11 @@ const layers = [
     border-top-color: var(--accent); animation: spin .8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .rt-dash, .sw-dash { background: repeating-linear-gradient(90deg, var(--ink-2) 0 5px, transparent 5px 9px) !important; }
+  .note {
+    margin: -6px 0 14px; padding: 8px 10px; border-radius: 8px; color: var(--ink-2);
+    background: color-mix(in srgb, var(--focus) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--focus) 25%, var(--line));
+  }
   .labels-opt { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; border-radius: 0; }
   .legend .sw { width: 22px; height: 5px; border-radius: 3px; flex: none; }
   .map-wrap .maplibregl-popup-content {

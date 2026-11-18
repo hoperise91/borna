@@ -25,6 +25,7 @@ export interface Road {
   segments: Segment[];
   attributes: Record<string, Event[]>;
   counties?: [string, number | null, number | null, number | null][];
+  through?: string[]; // counties passed (roads without HG 540 county sections)
 }
 
 // [key, ref, county, category, route, bbox, status, counties passed through]

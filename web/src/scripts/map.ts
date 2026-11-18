@@ -159,8 +159,9 @@ export function initMap(root: HTMLElement) {
       only(["A", "DX", "DN", "V", "DJ"]), 11, tf] as unknown as ExpressionSpecification;
   };
   let showLabels = stored("borna.labels") !== "0";
+  let showConstruction = stored("borna.construction") !== "0";
   let hoverKey = "";
-  const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt", "lanes", "width"];
+  const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt", "lanes", "width", "construction"];
 
   // Bornă's sources and layers. Runs on every style load: switching the basemap replaces the
   // style, so the overlays (and the current mode, road types and selection) are added again.
@@ -189,6 +190,11 @@ export function initMap(root: HTMLElement) {
         "line-opacity": 0.9, "line-blur": 1 } }, before);
     map.addLayer({ id: "roads", type: "line", source: "borna", "source-layer": "roads", layout: line,
       paint: { "line-color": catColor, "line-width": width() } }, before);
+    // Motorways, expressways and national roads under construction: dashed, in their colour.
+    map.addLayer({ id: "construction", type: "line", source: "borna", "source-layer": "construction",
+      layout: { "line-join": "round", visibility: showConstruction ? "visible" : "none" },
+      paint: { "line-color": catColor, "line-width": width(0.85), "line-opacity": 0.7,
+        "line-dasharray": [2, 2] } }, before);
     map.addLayer({ id: "surface", type: "line", source: "borna", "source-layer": "surface", layout: { ...line, visibility: "none" },
       paint: { "line-width": width(1.15), "line-color": [
         "match", ["get", "v"], ...Object.entries(SURFACE_COLOR).flat(), "#a3a3a3"] as unknown as ExpressionSpecification } }, before);
@@ -271,6 +277,15 @@ export function initMap(root: HTMLElement) {
         ? ` <span class="small muted">${esc(countyName(hoverKey.split("-")[0]))}</span>` : ""}`)
       .addTo(map);
   });
+  map.on("mousemove", "construction", (e) => {
+    const f = e.features?.[0];
+    if (!f || map.queryRenderedFeatures(e.point, { layers: ["roads"] }).length) return;
+    const o = f.properties.o ? ` · ${esc(s.opening)} ${esc(f.properties.o)}` : "";
+    hoverPopup.setLngLat(e.lngLat)
+      .setHTML(`${shield(f.properties.r, f.properties.t)} <span class="small">${esc(s.under_construction)}${o}</span>`)
+      .addTo(map);
+  });
+  map.on("mouseleave", "construction", () => { if (!hoverKey) hoverPopup.remove(); });
   map.on("mouseleave", "roads", () => {
     map.getCanvas().style.cursor = "";
     hoverKey = "";
@@ -315,7 +330,9 @@ export function initMap(root: HTMLElement) {
         <button type="button" class="chip" data-quick="all">${esc(s.show_all)}</button>
         <button type="button" class="chip" data-quick="main">${esc(s.only_main)}</button>
       </div>
-      <label class="rt labels-opt"><input type="checkbox" data-labels ${showLabels ? "checked" : ""}/>
+      <label class="rt labels-opt"><input type="checkbox" data-construction ${showConstruction ? "checked" : ""}/>
+        <span class="rt-line rt-dash"></span><span>${esc(s.show_construction)}</span></label>
+      <label class="rt"><input type="checkbox" data-labels ${showLabels ? "checked" : ""}/>
         <span class="shield" data-cat="DN">DN1</span><span>${esc(s.show_labels)}</span></label>`;
   }
   renderPanel();
@@ -332,6 +349,13 @@ export function initMap(root: HTMLElement) {
   });
   panel.addEventListener("change", (e) => {
     const box = e.target as HTMLInputElement;
+    if (box.hasAttribute("data-construction")) {
+      showConstruction = box.checked;
+      store("borna.construction", showConstruction ? "1" : "0");
+      if (map.getLayer("construction")) map.setLayoutProperty("construction", "visibility", showConstruction ? "visible" : "none");
+      applyMode();
+      return;
+    }
     if (box.hasAttribute("data-labels")) {
       showLabels = box.checked;
       store("borna.labels", showLabels ? "1" : "0");
@@ -413,7 +437,8 @@ export function initMap(root: HTMLElement) {
     let html = "";
     if (mode === "category") html = ROAD_TYPES.map((c) =>
       `<button type="button" class="row toggle" data-toggle="${c}" aria-pressed="${visibleCats.has(c)}">
-        <span class="sw" style="background:${CATEGORY_COLOR[c]}"></span>${esc(cat(c))}</button>`).join("");
+        <span class="sw" style="background:${CATEGORY_COLOR[c]}"></span>${esc(cat(c))}</button>`).join("")
+      + (showConstruction ? `<div class="row"><span class="sw sw-dash"></span>${esc(s.under_construction)}</div>` : "");
     if (mode === "surface") html = Object.entries(SURFACE_COLOR).map(([k, c]) => row(c, T[`s_${k}`])).join("");
     if (mode === "maxspeed") html = [["#b2182b", "≤ 30"], ["#ef8a62", "50"], ["#f4c95d", "70"], ["#7fbf7b", "90"], ["#2c9c5a", "100–110"], ["#00563b", "130"]]
       .map(([c, l]) => row(c, `${l} km/h`)).join("");
@@ -619,7 +644,7 @@ export function initMap(root: HTMLElement) {
     const shares = qualityShares(road);
     const aadt = (road.attributes.aadt ?? []).map((e) => Number(e[2]));
     const statusText = (s as Record<string, string>)[`status_${road.lrs.status ?? "no_geometry"}`] ?? "";
-    const through = road.counties ? [...new Set(road.counties.map((c) => c[0]))] : [];
+    const through = road.counties ? [...new Set(road.counties.map((c) => c[0]))] : road.through ?? [];
     const srcIds = new Set(Object.values(road.attributes).flat().map((e) => e[3]));
     const sources = [road.legal_source?.split(" (")[0] ?? "HG 540/2000",
       onMap ? "© OpenStreetMap (ODbL)" : "", srcIds.has("aadt_end") ? "MMAP, data.gov.ro (CC BY 4.0)" : ""].filter(Boolean);
@@ -629,6 +654,7 @@ export function initMap(root: HTMLElement) {
         <div><h2>${esc(cat(road.category))}</h2>
         <div class="small muted">${esc(road.county ? countyName(road.county) : s.national_road)}</div></div></div>
       <p class="detail-route">${esc(road.route ?? "")}</p>
+      ${road.lrs.status === "osm_only" ? `<p class="note small">${esc(s.not_in_register_note)}</p>` : ""}
       ${here ? `<div class="here"><span class="small muted">${esc(s.here)}</span>
         <span class="km">km ${formatKm(here.km)}</span>
         <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span></div>` : ""}

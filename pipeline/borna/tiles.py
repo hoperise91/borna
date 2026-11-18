@@ -23,6 +23,7 @@ from pathlib import Path
 import psycopg
 
 from borna.config import DATA_OUT, PG_DSN, ROOT
+from borna.romania import county_code
 
 WEB_DATA = ROOT / "web" / "public" / "data"
 MIN_ZOOM = {"A": 5, "DX": 5, "DN": 5, "V": 7, "DJ": 7, "DC": 9, "DP": 10}
@@ -92,6 +93,17 @@ def export_tiles(conn, tmp: Path) -> None:
                 'geometry', ST_AsGeoJSON(x.geom, {COORD_DECIMALS})::json)
             FROM ({EVENT_GEOM_SQL}) x
             WHERE NOT ST_IsEmpty(x.geom) AND {value} IS NOT NULL""", (typ,))
+    # Motorways, expressways and national roads under construction (not part of the network).
+    layers["construction"] = _geojsonseq(conn, tmp / "construction.geojsonl", f"""
+        SELECT json_build_object(
+            'type', 'Feature',
+            'tippecanoe', json_build_object('minzoom', {minzoom.replace('r.category', 'x.category')}),
+            'properties', json_build_object('r', x.ref, 't', x.category,
+                                            'o', w.tags->>'opening_date'),
+            'geometry', ST_AsGeoJSON(w.geom, {COORD_DECIMALS})::json)
+        FROM borna.osm_way_ref x JOIN raw.osm_roads w USING (osm_id)
+        WHERE w.highway = 'construction' AND x.category IN ('A', 'DX', 'DN', 'V')
+          AND coalesce(w.tags->>'construction', '') NOT IN ('service', 'track', 'path', 'footway')""")
     print("tiles: features " + ", ".join(f"{k} {v:,}" for k, v in layers.items()), flush=True)
     out = WEB_DATA / "borna.pmtiles"
     subprocess.run(
@@ -137,6 +149,14 @@ def export_roads(conn) -> int:
         counties.setdefault(ref, []).append(
             [county, *(None if v is None else float(v) for v in (f, t, length))])
 
+    geo_counties: dict[int, list[str]] = {}
+    for road_id, names in conn.execute("""
+            SELECT s.road_id, array_agg(DISTINCT c.name)
+            FROM borna.road_segment s JOIN borna.road r USING (road_id)
+            JOIN raw.osm_counties c ON ST_Intersects(s.geom, c.geom)
+            WHERE r.source_id = 'osm' GROUP BY 1"""):
+        geo_counties[road_id] = sorted(county_code(n) for n in names)
+
     index = []
     for (road_id, key, ref, county, category, route, km_from, km_to, length, legal,
          status, path_km, orientation, n_ctrl, n_ms, bbox) in conn.execute(f"""
@@ -162,12 +182,15 @@ def export_roads(conn) -> int:
         }
         if county is None and ref in counties:
             doc["counties"] = counties[ref]
-        (roads_dir / f"{key}.json").write_text(
-            json.dumps(doc, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
         short = route.split(" | ")[0] if route else ""
-        through = sorted({c[0] for c in counties.get(ref, [])}) if county is None else []
+        through = (sorted({c[0] for c in counties.get(ref, [])}) or geo_counties.get(road_id, [])) \
+            if county is None else []
+        if county is None and ref not in counties and road_id in geo_counties:
+            doc["through"] = geo_counties[road_id]
         index.append([key, ref, county, category, short[:140],
                       doc["bbox"], status or "no_geometry", through])
+        (roads_dir / f"{key}.json").write_text(
+            json.dumps(doc, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
     index.sort(key=lambda r: (["A", "DX", "DN", "V", "DJ", "DC", "DP"].index(r[3])
                               if r[3] in ("A", "DX", "DN", "V", "DJ", "DC", "DP") else 9,

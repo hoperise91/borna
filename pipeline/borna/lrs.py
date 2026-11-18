@@ -30,13 +30,15 @@ import networkx as nx
 import psycopg
 import shapely
 from shapely import wkb
-from shapely.geometry import LineString, MultiLineString, Point
+from shapely.geometry import LineString, MultiLineString, MultiPoint, Point
 from shapely.ops import nearest_points, substring
 
 from borna.config import CRS_METRIC, DATA_OUT, PG_DSN, ROOT
 from borna.romania import county_code, fold
 
 GAP_M = 300            # bridge gaps up to this size between dead ends of a road's ways
+MIN_PIECE_M = 500      # national roads: separate pieces shorter than this are ignored
+OSM_ONLY_MIN_M = 2000  # OSM-only motorways/expressways shorter than this are not added
 MILESTONE_SNAP_M = 50  # a milestone further from the path than this is ignored
 JUNCTION_SNAP_M = 150  # the road named at a route end must come this close to the path
 PLACE_NEAR_M = 5000    # a place named at a route end must be this close to the path
@@ -120,12 +122,18 @@ def _node(c) -> tuple[float, float]:
 
 
 def build_path(lines: list[LineString], gap_m: float = GAP_M,
-               prefer: list[Point] | None = None) -> LineString | None:
+               prefer: list[Point] | None = None,
+               connect_pieces: bool = False) -> tuple[LineString, list[tuple[float, float]]] | None:
     """Longest path through a road's lines (metric CRS), bridging small gaps at dead ends.
+    Returns the path and its unmapped gaps as (from, to) positions in metres.
 
-    When the lines fall into separate pieces, the longest wins, unless `prefer` points (the
-    places a route is officially named after) are given: then the piece nearest them wins
-    among pieces at least a quarter as long as the longest.
+    When the lines fall into separate pieces:
+      - connect_pieces (national roads, which really are built in pieces, e.g. A1): all pieces
+        of at least MIN_PIECE_M are linked through their nearest ends, so km runs on across
+        the gaps; the links are returned as gaps and are not drawn;
+      - else the longest piece wins, unless `prefer` points (the places a route is officially
+        named after) are given: then the piece nearest them wins among pieces at least a
+        quarter as long as the longest.
     """
     lines = [ln for ln in lines if ln.length > 0]
     if not lines:
@@ -158,14 +166,34 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M,
                     if best is None or d < best[0]:
                         best = (d, m)
             if best and not g.has_edge(n, best[1]):
-                g.add_edge(n, best[1], weight=best[0] * 1.5, line=None)
+                g.add_edge(n, best[1], weight=best[0] * 1.5, line=None, gap=False)
 
     comps = list(nx.connected_components(g))
 
     def comp_length(c):
         return sum(d["weight"] for _, _, d in g.subgraph(c).edges(data=True))
 
-    if prefer and len(comps) > 1:
+    if connect_pieces and len(comps) > 1:
+        comps = [c for c in comps if comp_length(c) >= MIN_PIECE_M] or [max(comps, key=comp_length)]
+        # Kruskal over the pieces: link each pair through their nearest dead ends
+        ends = [MultiPoint([n for n in c if g.degree(n) == 1] or list(c)) for c in comps]
+        links = []
+        for i, j in itertools.combinations(range(len(comps)), 2):
+            pi, pj = nearest_points(ends[i], ends[j])
+            links.append((pi.distance(pj), i, j, _node(pi.coords[0]), _node(pj.coords[0])))
+        parent = list(range(len(comps)))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for d, i, j, ni, nj in sorted(links):
+            if find(i) != find(j):
+                parent[find(i)] = find(j)
+                g.add_edge(ni, nj, weight=d, line=None, gap=True)
+        comp = set().union(*comps)
+    elif prefer and len(comps) > 1:
         longest = max(comp_length(c) for c in comps)
         comps = [c for c in comps if comp_length(c) >= 0.25 * longest]
         def remoteness(c):
@@ -187,13 +215,20 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M,
         return None
 
     coords: list[tuple[float, float]] = []
+    gaps: list[tuple[float, float]] = []
+    run = 0.0
     for u, v in itertools.pairwise(route):
-        line = h[u][v]["line"]
+        edge = h[u][v]
+        line = edge["line"]
         seg = [u, v] if line is None else list(line.coords)
         if line is not None and _node(seg[0]) != u:
             seg.reverse()
         coords.extend(seg if not coords else seg[1:])
-    return LineString(coords)
+        step = LineString(seg).length
+        if edge.get("gap"):
+            gaps.append((run, run + step))
+        run += step
+    return LineString(coords), gaps
 
 
 # --- 3. calibration --------------------------------------------------------------------
@@ -279,6 +314,20 @@ def anchors_for(length: float, km_from: float, km_to: float,
         if c.pos - clean[-1].pos > 1 and c.km > clean[-1].km:
             clean.append(c)
     return clean
+
+
+def without_gaps(f: float, t: float, gaps: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The parts of [f, t] outside the gaps (pieces shorter than 1 m dropped)."""
+    out, cur = [], f
+    for gf, gt in sorted(gaps):
+        if gt <= cur or gf >= t:
+            continue
+        if gf - cur > 1:
+            out.append((cur, gf))
+        cur = max(cur, gt)
+    if t - cur > 1:
+        out.append((cur, t))
+    return out
 
 
 def segment_quality(a: Control, b: Control, length_ok: bool) -> str:
@@ -376,12 +425,15 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
     srid = CRS_METRIC
     print("lrs: loading ways, counties, milestones…", flush=True)
     ways_by_ref: dict[str, list] = defaultdict(list)
+    # Roads under construction (highway=construction) are not part of the network: they are
+    # exported separately for the map. Ramps (*_link) are kept only as junction hints.
     for _osm_id, ref, counties, g, is_link in conn.execute(f"""
             SELECT w.osm_id, r.ref, array_remove(array_agg(DISTINCT c.county), NULL),
                    ST_AsBinary(ST_Transform(w.geom, {srid})), right(w.highway, 5) = '_link'
             FROM borna.osm_way_ref r
             JOIN raw.osm_roads w USING (osm_id)
             LEFT JOIN borna.osm_way_county c USING (osm_id)
+            WHERE w.highway <> 'construction'
             GROUP BY w.osm_id, r.ref, w.geom, w.highway"""):
         ways_by_ref[ref].append((set(counties), wkb.loads(bytes(g)), is_link))
 
@@ -413,9 +465,21 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
             "WHERE list = 'county_dn' AND km_from IS NOT NULL AND km_to IS NOT NULL"):
         sections[ref].append((county, float(f), float(t)))
 
+    # Motorways and expressways open in OSM but missing from HG 540 (A7, A8, DX12, ...):
+    # added as roads with source 'osm', no official km.
+    conn.execute(f"""
+        DELETE FROM borna.road WHERE source_id = 'osm';
+        INSERT INTO borna.road (ref, category, county, source_id)
+        SELECT x.ref, min(x.category), NULL, 'osm'
+        FROM borna.osm_way_ref x JOIN raw.osm_roads w USING (osm_id)
+        WHERE x.category IN ('A', 'DX') AND w.highway IN ('motorway', 'trunk', 'primary')
+          AND NOT EXISTS (SELECT 1 FROM borna.road r WHERE r.ref = x.ref)
+        GROUP BY x.ref
+        HAVING sum(ST_Length(w.geom::geography)) > {OSM_ONLY_MIN_M}
+    """)
     roads = conn.execute("""
         SELECT road_id, ref, category, county, route_desc,
-               km_from_official, km_to_official, length_official
+               km_from_official, km_to_official, length_official, source_id = 'osm'
         FROM borna.road ORDER BY category, ref""").fetchall()
 
     hints: dict[tuple, object] = {}
@@ -433,7 +497,8 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
 
     print(f"lrs: building {len(roads):,} roads…", flush=True)
     results, segments = [], []
-    for i, (road_id, ref, category, county, route_desc, km_from, km_to, length) in enumerate(roads):
+    for i, (road_id, ref, category, county, route_desc, km_from, km_to, length,
+            osm_only) in enumerate(roads):
         if i and i % 1000 == 0:
             print(f"lrs:   {i:,}/{len(roads):,}", flush=True)
         cands = ways_by_ref.get(ref, [])
@@ -457,8 +522,11 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
                     pt = min(places[name], key=near.distance)
                     if near.distance(pt) <= PLACE_NEAR_M:
                         prefer.append(pt)
-        path = build_path(lines, prefer=prefer)
+        built = build_path(lines, prefer=prefer, connect_pieces=county is None)
         official = float(length) if length is not None else None
+        path, gaps = built if built else (None, [])
+        if osm_only and path is not None:  # no official km: count from 0 along the path
+            km_from, km_to = 0.0, (path.length - sum(t - f for f, t in gaps)) / 1000
         if path is None or km_from is None or km_to is None:
             results.append({"road_id": road_id, "status": "no_geometry", "official_km": official,
                                 "path_km": None, "n_border": 0, "n_milestone": 0, "orientation": "none",
@@ -497,11 +565,13 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
             path = path.reverse()
             for c in interior:
                 c.pos = plen - c.pos
+            gaps = [(plen - t, plen - f) for f, t in reversed(gaps)]
         path, junctions = attach_junctions(path, start_hint, end_hint, km_from, km_to)
         if path.length != plen:  # extended: shift existing controls if the start moved
             shift = path.project(Point(p0.coords[0] if not reverse else p1.coords[0]))
             for c in interior:
                 c.pos += shift
+            gaps = [(f + shift, t + shift) for f, t in gaps]
             plen = path.length
         interior += junctions
 
@@ -514,15 +584,23 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
         length_ok = how != "none" and (
             len(anchors) > 2 or (span > 0 and abs(plen / 1000 - span) / span <= LENGTH_TOLERANCE))
         worst = "calibrated"
-        for seq, (a, b) in enumerate(itertools.pairwise(anchors)):
+        seq = 0
+        for a, b in itertools.pairwise(anchors):
             q = segment_quality(a, b, length_ok)
             worst = max(worst, q, key=["calibrated", "interpolated", "estimated"].index)
-            segments.append((road_id, seq, round(a.km, 3), round(b.km, 3),
-                             substring(path, a.pos, b.pos).wkb, q))
-        status = "ok" if official and abs(plen / 1000 - official) / official <= LENGTH_TOLERANCE \
-            else "partial"
+            rate = (b.km - a.km) / (b.pos - a.pos)  # km per metre within this anchor pair
+            for f, t in without_gaps(a.pos, b.pos, gaps):
+                segments.append((road_id, seq, round(a.km + (f - a.pos) * rate, 3),
+                                 round(a.km + (t - a.pos) * rate, 3), substring(path, f, t).wkb, q))
+                seq += 1
+        mapped = plen - sum(t - f for f, t in gaps)
+        if osm_only:
+            status = "osm_only"
+        else:
+            status = "ok" if official and abs(mapped / 1000 - official) / official <= LENGTH_TOLERANCE \
+                else "partial"
         results.append({"road_id": road_id, "status": status, "official_km": official,
-                            "path_km": round(plen / 1000, 3), "n_border": n_bd, "n_milestone": n_ms,
+                            "path_km": round(mapped / 1000, 3), "n_border": n_bd, "n_milestone": n_ms,
                             "orientation": how, "km_quality": worst})
 
     print(f"lrs: writing {len(segments):,} segments…", flush=True)

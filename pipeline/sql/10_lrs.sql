@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS osm_way_county (
 -- One row per HG 540 road: how its geometry and km calibration were built.
 CREATE TABLE IF NOT EXISTS lrs_road (
     road_id       integer PRIMARY KEY REFERENCES road ON DELETE CASCADE,
-    status        text NOT NULL CHECK (status IN ('ok', 'partial', 'no_geometry')),
+    status        text NOT NULL,       -- ok | partial | no_geometry | osm_only
     official_km   numeric(9,3),
     path_km       numeric(9,3),        -- length of the built centreline (Stereo 70)
     n_border      integer NOT NULL,    -- county-border control points used
@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS lrs_road (
     orientation   text NOT NULL,       -- how the km direction was decided
     km_quality    text NOT NULL        -- worst segment quality on the road
 );
+
+ALTER TABLE lrs_road DROP CONSTRAINT IF EXISTS lrs_road_status_check;
+ALTER TABLE lrs_road ADD CONSTRAINT lrs_road_status_check
+    CHECK (status IN ('ok', 'partial', 'no_geometry', 'osm_only'));
 
 -- 'DN11', 21.0 -> point on the road. County is needed for DJ/DC/DP numbers, which repeat
 -- across counties; national roads ignore it. Interpolates within the segment in Stereo 70.

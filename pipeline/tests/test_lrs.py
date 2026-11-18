@@ -43,15 +43,31 @@ def test_build_path_bridges_gap_and_picks_one_carriageway():
         LineString([(2000, 0), (2500, 0), (3000, 0)]),             # carriageway A
         LineString([(2000, 0), (2500, 30), (3000, 0)]),            # carriageway B (longer)
     ]
-    path = build_path(lines)
+    path, gaps = build_path(lines)
     assert path.length == pytest.approx(3000 + 100 * 0, abs=1)   # gap bridged straight
+    assert gaps == []                                            # small gaps are road, not gaps
     assert Point(0, 0).distance(Point(path.coords[0])) < 1 or \
         Point(0, 0).distance(Point(path.coords[-1])) < 1
 
 
 def test_build_path_leaves_far_pieces_out():
     lines = [LineString([(0, 0), (1000, 0)]), LineString([(5000, 0), (5200, 0)])]
-    assert build_path(lines).length == pytest.approx(1000)
+    assert build_path(lines)[0].length == pytest.approx(1000)
+
+
+def test_build_path_links_pieces_of_national_roads():
+    # A1-like: two open sections 20 km apart; km must run on, the gap must not be drawn
+    lines = [LineString([(0, 0), (10000, 0)]), LineString([(30000, 0), (45000, 0)])]
+    path, gaps = build_path(lines, connect_pieces=True)
+    assert path.length == pytest.approx(45000)
+    [(f, to)] = gaps                                              # either direction
+    assert (f, to) in (pytest.approx((10000, 30000)), pytest.approx((15000, 35000)))
+
+
+def test_without_gaps():
+    from borna.lrs import without_gaps
+    assert without_gaps(0, 100, [(20, 40), (60, 70)]) == [(0, 20), (40, 60), (70, 100)]
+    assert without_gaps(0, 100, [(-10, 5), (95, 120)]) == [(5, 95)]
 
 
 def test_orientation_from_controls_and_route_ends():
