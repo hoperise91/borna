@@ -2,6 +2,8 @@
 
 Romania's open road database: an NVDB-style portal built from public data. The plan lives in `docs/ROADMAP.md`. Work one roadmap step at a time and commit after each one.
 
+**Where we are (2026-11-19):** Phases 1–2 done; the Phase 3 portal is built and runs locally but is **not deployed**. Start a new session by reading `docs/ROADMAP.md` → "Progress" and "Next steps" (next: go live on Cloudflare Pages + R2, then a weekly automated refresh). The owner prefers a simple, calm, easy UI and checks results against reality (e.g. 130km.ro for motorways): verify geometry, not just totals.
+
 ## Non-negotiables
 - **Public data only.** Use only sources listed in ROADMAP §2 (or similar public/open ones). No scraping behind logins and no data obtained by formal request until Phase 5.
 - **Source, date and licence on every value.** Every row in `road`, `road_segment`, `attribute_event` and `point_object` references `borna.source`. Attribute events and point objects also carry `source_date` and `licence`. Never merge values from two sources into one unlabelled value.

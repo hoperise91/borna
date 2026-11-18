@@ -11,6 +11,43 @@
 
 ---
 
+## Progress (updated 2026-11-19)
+
+**Phases 1–2 done, Phase 3 built and running locally; not yet deployed.** Next session: **go live** (§ "Next steps" below).
+
+| Phase / step | Status | Notes |
+|---|---|---|
+| 1.1 Scaffold | ✅ | repo, PostGIS in Docker, Makefile, CLAUDE.md |
+| 1.2 OSM + Overture | ✅ | Geofabrik extract, Overture transportation (bbox) |
+| 1.3 HG 540/2000 register | ✅ | 9,012 rows from the consolidated annexes (08.09.2026); 132/143 official totals match, the rest are errors in the act itself |
+| 1.4 TENtec / EuroRegionalMap | ⏸ | TENtec server down (retry); **Romania is not in the open EuroRegionalMap** |
+| 1.5 Traffic (AADT) | ◐ | open AADT for the busiest roads (Directive 2002/49/CE data, data.gov.ro); full CESTRIN census is access-restricted → Phase 5 |
+| 1.6 GISCO + INS | ✅ | NUTS/LAU boundaries, INS TRN139A road statistics 1990–2025 |
+| 2 Linear referencing | ✅ | every register road matched to OSM, km calibrated (county borders, junctions, milestones); held-out milestones: median 12 m, 88% within 50 m |
+| 2 Attributes | ✅ | surface, lanes, speed, width, bridges, tunnels, AADT on km ranges with source/date/licence |
+| 2 QA | ✅ | `make qa`: register vs INS vs OSM per county, surfaces, gap report |
+| 3 Portal | ◐ built | Astro site RO/EN at `make web-dev` (localhost:4321); **not deployed** |
+
+**What the portal does now:** map with click/hover on roads, county → road browsing, search incl. `DN1 km 27+400`, road panel and road page (strip diagram, every value with its source), layer modes (category, surface, speed, traffic, width, administrator), background maps (light, dark, detailed, MapTiler terrain + satellite, none), road-type toggles, road-number labels, dashed sections under construction, data and about pages.
+
+**Findings worth knowing:**
+- HG 540's motorway list is outdated: A0, A7, A10, DX12 … are taken from OSM and labelled "not in HG 540/2000".
+- Open motorway km cross-checked against 130km.ro (2026-11-19): A0, A1, A2, A3, A7, DX12 match. 130km.ro is used only as a check (private site, no reuse terms).
+- HG 540 and INS disagree by up to 30% per county (communal roads especially); the portal should show both, labelled.
+- OSM barely has road width (~200 tagged stretches): the width layer is mostly an estimate from lanes, labelled as such.
+
+### Next steps
+1. **Go live (Phase 3.5).** Needed from the owner: domain (`bornakm.ro`, or start on a free `*.pages.dev`), a Cloudflare account, a GitHub repo (personal account or `borna` org; public?). Claude: move `borna.pmtiles` (24.4 MB, at the 25 MB Pages limit) to R2, deploy config, cookieless analytics, add the domain + `*.pages.dev` to the MapTiler key's allowed origins.
+2. **Weekly automated refresh** (Phase 4.1) with a "what changed" log.
+3. Bridges/tunnels as point objects, Mapillary speed limits, DN roads missing from HG 540, "report an error" link (Phase 4).
+4. Waiting on others: ANCPI orthophoto (0.5 m) when geoportal.ancpi.ro is back; TENtec when the EC server is back; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
+
+### Resuming
+`make db-up` (PostGIS in Docker keeps all data) · `make web-dev` → http://localhost:4321.
+Full rebuild after new data: `make download import register lrs attributes qa tiles` (~10 min). Secrets live in git-ignored files: `.env` (`ERM_TOKEN`), `web/.env` (`PUBLIC_MAPTILER_KEY`).
+
+---
+
 ## 0. What we're building
 
 **Goal:** an NVDB-style public portal for Romania. You can look up any road segment and see its official number and class, its owner/administrator, km chainage, surface, lanes, speed limit, AADT, bridges and works. Everything is downloadable and reachable through an API, in Romanian and English.
@@ -224,7 +261,5 @@ At ~6–10 h/week with Claude. The main risks are the HG 540 parsing (scanned or
 
 ---
 
-## Appendix B — Next three actions
-1. Register the domain.
-2. Install the toolchain and create the GitHub repo.
-3. Start Claude Code with the first prompt in section 6.
+## Appendix B — Next actions
+See **Progress → Next steps** at the top. (Toolchain installed and Claude Code set up on 2026-11-18.)
