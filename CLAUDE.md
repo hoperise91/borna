@@ -22,11 +22,12 @@ Romania's open road database: an NVDB-style portal built from public data. The p
 - `make register` parses the HG 540/2000 annexes (`data/raw/hg540/anexe.html`, newest consolidation from legislatie.just.ro) into `borna.register_entry` (one row per published table row, lists `national`, `county_dn`, `dj`, `dc`, `dp`) and derives `borna.road` (one row per ref; national roads have `county` NULL; county codes are ISO 3166-2:RO). It checks parsed sums against the totals printed in the act and writes `data/out/hg540/{register,totals_check,amendments,problems}.csv`. Known typos in the act go in `REF_CORRECTIONS` with a reason; never silently change official values.
 - `gisco` → `raw.gisco_nuts` (NUTS 2024, `county` on level 3) and `raw.gisco_lau` (3,181 UATs; `siruta`, `county`). `ins_trn139a` → `raw.ins_trn139a` (INS road length by category × surface × area × year; `county` set on county rows). County names → ISO codes via `borna.romania.county_code`.
 - `aadt_end` → `raw.end_major_roads`: open AADT (CC BY 4.0, data.gov.ro) from the Environmental Noise Directive reporting, only roads above 3M vehicles/year (299 sections, 72 roads); `aadt` = annualTrafficFlow / 365. The full CESTRIN 2022 census layer is access-restricted: Phase 5 request.
+- EuroRegionalMap (Open Maps for Europe WFS, token in `.env` as `ERM_TOKEN`): checked 2026-11-18, **Romania is not in the open release** (only neighbouring MD/HU/RS roads), so it can't serve as a DN/DJ cross-check. TENtec (webgate.ec.europa.eu) was down on 2026-11-18; retry before Phase 3.
 - Never work around access controls on a source (403s, token-gated or referer-restricted services). Public-data-only means data that is openly served; anything else waits for a formal request (Phase 5).
 - Schema changes: edit `pipeline/sql/00_schema.sql`, then `make db-reset` (and re-run `make import register`) or apply the matching ALTER by hand.
 - `data/`: git-ignored (`raw/` downloads, `interim/`, `out/` exports). Never commit data.
 - `web/`: Astro site (Phase 3).
-- `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m.
+- `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m. Note where each km value comes from (local knowledge, HG 540, milestone photo); approximate ones say so.
 
 ## Commands
 `make test` · `make help` · `make check-tools` · `make setup` · `make db-up` · `make psql` · `make download|import|register|lrs|tiles|web-dev`
