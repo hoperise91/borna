@@ -17,10 +17,11 @@ Romania's open road database: an NVDB-style portal built from public data. The p
 ## Layout
 - `pipeline/borna/`: Python 3.12 package. One module per Makefile target (`download`, `importer`, `register`, `lrs`, `tiles`).
 - `pipeline/sql/`: schema and SQL. `00_schema.sql` runs on first DB start. Schemas: `raw` (untouched imports) and `borna` (the reference network).
-- `pipeline/osm2pgsql/`: flex style.
+- `pipeline/osm2pgsql/roads.lua`: flex style → `raw.osm_roads`, `raw.osm_road_points` (milestones, junctions, level crossings, tolls, borders), `raw.osm_road_routes` (route relations with ordered `way_ids`).
+- Downloads write `data/raw/<source>/manifest.json`; `make import` loads them and upserts `borna.source`. Overture lands in `raw.overture_segment` / `raw.overture_connector` (nested fields as jsonb). Its bbox covers neighbouring countries too: clip with GISCO boundaries (Phase 1 step 6).
 - `data/`: git-ignored (`raw/` downloads, `interim/`, `out/` exports). Never commit data.
 - `web/`: Astro site (Phase 3).
 - `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m.
 
 ## Commands
-`make help` · `make check-tools` · `make setup` · `make db-up` · `make psql` · `make download|import|register|lrs|tiles|web-dev`
+`make test` · `make help` · `make check-tools` · `make setup` · `make db-up` · `make psql` · `make download|import|register|lrs|tiles|web-dev`

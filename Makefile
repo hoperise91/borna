@@ -14,9 +14,10 @@ export PG_DSN
 VENV := .venv
 PY   := $(VENV)/bin/python
 RUN  := cd pipeline && ../$(PY) -m
+SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs tiles web-dev
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs tiles web-dev test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -27,7 +28,7 @@ setup: $(VENV) ## Create the Python 3.12 venv and install pipeline deps
 $(VENV): pipeline/pyproject.toml
 	python3.12 -m venv $(VENV)
 	$(VENV)/bin/pip install -U pip
-	$(VENV)/bin/pip install -e pipeline
+	$(VENV)/bin/pip install -e "pipeline[dev]"
 	@touch $(VENV)
 
 check-tools: ## Report which required tools are installed
@@ -50,11 +51,11 @@ psql: ## Open a psql shell in the DB container
 
 ## --- pipeline (ROADMAP §4) -----------------------------------------------
 
-download: setup ## Phase 1: fetch public sources into data/raw/
-	$(RUN) borna.download
+download: setup ## Phase 1: fetch public sources into data/raw/ (SOURCES=osm overture)
+	$(RUN) borna.download $(SOURCES)
 
 import: setup db-up ## Phase 1: load data/raw/ into PostGIS (raw schema)
-	$(RUN) borna.importer
+	$(RUN) borna.importer $(SOURCES)
 
 register: setup db-up ## Phase 1.3: parse HG 540/2000 annexes into borna.road
 	$(RUN) borna.register
@@ -68,3 +69,6 @@ tiles: setup db-up ## Phase 3: export PMTiles + per-county downloads to data/out
 web-dev: ## Phase 3: run the Astro dev server
 	@if [ ! -f web/package.json ]; then echo "web/ not scaffolded yet (Phase 3 step 2)."; exit 1; fi
 	cd web && npm install && npm run dev
+
+test: setup ## Run pipeline unit tests and lint
+	cd pipeline && ../$(VENV)/bin/pytest -q && ../$(VENV)/bin/ruff check borna tests
