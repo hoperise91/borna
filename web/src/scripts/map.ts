@@ -98,6 +98,7 @@ export function initMap(root: HTMLElement) {
   const stack: View[] = [];
   let current: View = homeView;
   let roadCounty: string | null = null; // county of the open road (at the chosen km), for "Back"
+  let keepView = false; // set while deselecting by clicking the map: lists don't move the map
 
   // ---- map --------------------------------------------------------------------------
   maplibregl.setWorkerUrl(workerUrl); // bundled by Vite (an ES-module worker)
@@ -282,7 +283,7 @@ export function initMap(root: HTMLElement) {
     const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
     const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
     if (!feats.length) { // empty map: deselect
-      if (current.kind === "road") back(); else if (selected) clearSelection();
+      if (current.kind === "road") back(true); else if (selected) clearSelection();
       return;
     }
     feats.sort((a, b) => CATEGORY_ORDER.indexOf(a.properties.t) - CATEGORY_ORDER.indexOf(b.properties.t));
@@ -454,7 +455,11 @@ export function initMap(root: HTMLElement) {
 
   // Back from a road goes to a road list, never to an earlier road: the list it was chosen
   // from (search results, or this county's list with its filter), else its county's list.
-  function back() {
+  function back(stayHere = false) {
+    keepView = stayHere;
+    try { goBack(); } finally { keepView = false; }
+  }
+  function goBack() {
     if (current.kind === "road") {
       clearSelection();
       const prev = stack.at(-1);
@@ -519,7 +524,7 @@ export function initMap(root: HTMLElement) {
       b.addEventListener("click", () => { current = countyView(code, b.dataset.filter!); current.render(); }));
     const own = rows.filter((r) => r[2] === code && r[5]);
     const b = (own.length ? own : rows).map((r) => r[5]).filter(Boolean) as [number, number, number, number][];
-    if (b.length) map.fitBounds([[Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1]))],
+    if (b.length && !keepView) map.fitBounds([[Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1]))],
       [Math.max(...b.map((x) => x[2])), Math.max(...b.map((x) => x[3]))]], { padding: 40, duration: 700 });
   }
 
