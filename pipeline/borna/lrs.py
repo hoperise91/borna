@@ -33,11 +33,13 @@ from shapely.geometry import LineString, MultiLineString, Point
 from shapely.ops import nearest_points, substring
 
 from borna.config import CRS_METRIC, DATA_OUT, PG_DSN, ROOT
-from borna.romania import county_code
+from borna.romania import county_code, fold
 
 GAP_M = 300            # bridge gaps up to this size between dead ends of a road's ways
 MILESTONE_SNAP_M = 50  # a milestone further from the path than this is ignored
 JUNCTION_SNAP_M = 150  # the road named at a route end must come this close to the path
+PLACE_NEAR_M = 5000    # a place named at a route end must be this close to the path
+STOP_PREFIX_RE = re.compile(r"^(MUN\.?|MUNICIPIUL|ORAS(UL)?|COMUNA|SAT(UL)?|GARA|STATIA CF)\s+")
 LENGTH_TOLERANCE = 0.10
 CHECKPOINT_TARGET_M = 50
 
@@ -116,8 +118,14 @@ def _node(c) -> tuple[float, float]:
     return round(c[0], 1), round(c[1], 1)
 
 
-def build_path(lines: list[LineString], gap_m: float = GAP_M) -> LineString | None:
-    """Longest path through a road's lines (metric CRS), bridging small gaps at dead ends."""
+def build_path(lines: list[LineString], gap_m: float = GAP_M,
+               prefer: list[Point] | None = None) -> LineString | None:
+    """Longest path through a road's lines (metric CRS), bridging small gaps at dead ends.
+
+    When the lines fall into separate pieces, the longest wins, unless `prefer` points (the
+    places a route is officially named after) are given: then the piece nearest them wins
+    among pieces at least a quarter as long as the longest.
+    """
     lines = [ln for ln in lines if ln.length > 0]
     if not lines:
         return None
@@ -151,8 +159,21 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M) -> LineString | No
             if best and not g.has_edge(n, best[1]):
                 g.add_edge(n, best[1], weight=best[0] * 1.5, line=None)
 
-    comp = max(nx.connected_components(g),
-               key=lambda c: sum(d["weight"] for _, _, d in g.subgraph(c).edges(data=True)))
+    comps = list(nx.connected_components(g))
+
+    def comp_length(c):
+        return sum(d["weight"] for _, _, d in g.subgraph(c).edges(data=True))
+
+    if prefer and len(comps) > 1:
+        longest = max(comp_length(c) for c in comps)
+        comps = [c for c in comps if comp_length(c) >= 0.25 * longest]
+        def remoteness(c):
+            geom = MultiLineString([d["line"] for _, _, d in g.subgraph(c).edges(data=True)
+                                    if d["line"] is not None] or [LineString(list(c)[:2])])
+            return sum(min(geom.distance(p), PLACE_NEAR_M) for p in prefer)
+        comp = min(comps, key=remoteness)
+    else:
+        comp = max(comps, key=comp_length)
     h = g.subgraph(comp)
     # double sweep: farthest node from anywhere, then farthest from that = the road's two ends
     first = next(iter(comp))
@@ -197,7 +218,8 @@ def _increasing(controls: list[Control]) -> list[Control]:
 
 
 def decide_orientation(length: float, km_from: float, km_to: float, interior: list[Control],
-                       route_evidence: float | None) -> tuple[bool, str]:
+                       route_evidence: float | None,
+                       evidence_label: str = "route_ends") -> tuple[bool, str]:
     """(reverse?, method). route_evidence (metres): how much closer the path's first point is
     to the road named at the route's start (and its last point to the road at the route's
     end) than the other way round; positive means the path already runs start -> end."""
@@ -208,7 +230,7 @@ def decide_orientation(length: float, km_from: float, km_to: float, interior: li
         slope = sum((c.pos - mp) * (c.km - mk) for c in pts)
         return slope < 0, "controls"
     if route_evidence is not None and abs(route_evidence) > 100:
-        return route_evidence < 0, "route_ends"
+        return route_evidence < 0, evidence_label
     if len(interior) == 1 and length > 0:
         c = interior[0]
         span = km_to - km_from
@@ -283,6 +305,23 @@ def _end_refs(route_desc: str | None) -> tuple[str | None, str | None]:
     return ref_in(stops[0]), (ref_in(stops[-1]) if len(stops) > 1 else None)
 
 
+def stop_names(route_desc: str | None) -> tuple[str | None, str | None]:
+    """Place names at a route's first and last stop, folded for matching:
+    'Ghimbav (DN 1) - Brașov' -> ('GHIMBAV', 'BRASOV'). Stops that are a county limit, a
+    junction or a road number give None."""
+    if not route_desc:
+        return None, None
+    stops = re.split(r"\s[-–]\s?|[-–]\s", route_desc.split(" | ")[0])
+
+    def clean(stop: str) -> str | None:
+        name = STOP_PREFIX_RE.sub("", fold(re.sub(r"\(.*?\)", "", stop)).strip())
+        if not name or re.search(r"LIMIT|INTERSECT|^(A|DN|DJ|DC)\s?\d", name):
+            return None
+        return name
+
+    return clean(stops[0]), (clean(stops[-1]) if len(stops) > 1 else None)
+
+
 def attach_junctions(path: LineString, start_hint, end_hint, km_from: float,
                      km_to: float) -> tuple[LineString, list[Control]]:
     """Official km at the junctions with the roads named at the route's ends.
@@ -329,7 +368,10 @@ def _border_controls(path: LineString, sections: list[tuple], county_geom: dict)
     return out
 
 
-def build(conn) -> list[dict]:
+HOLDOUT_EVERY = 5  # --holdout: every 5th milestone (by OSM id) is kept out of calibration
+
+
+def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
     srid = CRS_METRIC
     print("lrs: loading ways, counties, milestones…", flush=True)
     ways_by_ref: dict[str, list] = defaultdict(list)
@@ -347,12 +389,22 @@ def build(conn) -> list[dict]:
 
     bypass = {r for (r,) in conn.execute("SELECT ref FROM borna.road WHERE category = 'V'")}
     milestones = defaultdict(list)
-    for ref, dist, g in conn.execute(f"""
-            SELECT ref, distance, ST_AsBinary(ST_Transform(geom, {srid}))
+    held_out = []  # (ref, km, osm_id) of milestones kept out to test against
+    for osm_id, ref, dist, g in conn.execute(f"""
+            SELECT osm_id, ref, distance, ST_AsBinary(ST_Transform(geom, {srid}))
             FROM raw.osm_road_points WHERE kind = 'milestone' AND ref IS NOT NULL
               AND distance ~ '^\\s*\\d+([.,]\\d+)?\\s*$'"""):
         if n := normalise_osm_ref(ref.split(";")[0], bypass):
-            milestones[n[0]].append((float(dist.replace(",", ".")), wkb.loads(bytes(g))))
+            km = float(dist.replace(",", "."))
+            if holdout and osm_id % HOLDOUT_EVERY == 0:
+                held_out.append((n[0], km, osm_id))
+            else:
+                milestones[n[0]].append((km, wkb.loads(bytes(g))))
+
+    places = defaultdict(list)
+    for name, g in conn.execute(
+            f"SELECT name, ST_AsBinary(ST_Transform(geom, {srid})) FROM raw.osm_places"):
+        places[fold(name)].append(wkb.loads(bytes(g)))
 
     sections = defaultdict(list)
     for ref, county, f, t in conn.execute(
@@ -395,7 +447,16 @@ def build(conn) -> list[dict]:
                 lines += [p for p in getattr(part, "geoms", [part]) if isinstance(p, LineString)]
         else:
             lines = [g for _, g, _ in cands]
-        path = build_path(lines)
+        # places the official route names at its ends, to choose between separate pieces
+        prefer = []
+        if lines and county:  # national roads are long and gappy: keep their longest piece
+            near = MultiLineString(lines)
+            for name in stop_names(route_desc):
+                if name and places.get(name):
+                    pt = min(places[name], key=near.distance)
+                    if near.distance(pt) <= PLACE_NEAR_M:
+                        prefer.append(pt)
+        path = build_path(lines, prefer=prefer)
         official = float(length) if length is not None else None
         if path is None or km_from is None or km_to is None:
             results.append({"road_id": road_id, "status": "no_geometry", "official_km": official,
@@ -413,13 +474,24 @@ def build(conn) -> list[dict]:
         start_ref, end_ref = _end_refs(route_desc)
         start_hint = hint_geom(start_ref, county) if start_ref != ref else None
         end_hint = hint_geom(end_ref, county) if end_ref != ref else None
-        evidence = None  # > 0: the path already runs from the route's start to its end
+        # Evidence (metres) that the path already runs from the route's start to its end:
+        # first from the places named at the ends, else from the roads named there.
         p0, p1 = Point(path.coords[0]), Point(path.coords[-1])
-        if start_hint is not None:
-            evidence = p1.distance(start_hint) - p0.distance(start_hint)
-        if end_hint is not None:
-            evidence = (evidence or 0) + p0.distance(end_hint) - p1.distance(end_hint)
-        reverse, how = decide_orientation(plen, km_from, km_to, interior, evidence)
+        evidence, label = 0.0, "route_places"
+        for name, at_start in zip(stop_names(route_desc), (True, False)):
+            cands = places.get(name) if name else None
+            if cands:
+                pt = min(cands, key=path.distance)
+                if path.distance(pt) <= PLACE_NEAR_M:
+                    d0, d1 = p0.distance(pt), p1.distance(pt)
+                    evidence += (d1 - d0) if at_start else (d0 - d1)
+        if abs(evidence) <= 100:
+            evidence, label = 0.0, "route_ends"
+            if start_hint is not None:
+                evidence += p1.distance(start_hint) - p0.distance(start_hint)
+            if end_hint is not None:
+                evidence += p0.distance(end_hint) - p1.distance(end_hint)
+        reverse, how = decide_orientation(plen, km_from, km_to, interior, evidence or None, label)
         if reverse:
             path = path.reverse()
             for c in interior:
@@ -472,14 +544,28 @@ def build(conn) -> list[dict]:
         for r in results:
             copy.write_row([r[k] for k in ("road_id", "status", "official_km", "path_km",
                                            "n_border", "n_milestone", "orientation", "km_quality")])
-    return results
+    return results, held_out
+
+
+CHECKPOINT_FILES = ("lrs_checkpoints.csv",    # public, in git
+                    "local_checkpoints.csv")  # private QA points, git-ignored, optional
 
 
 def check_checkpoints(conn) -> list[dict]:
-    path = ROOT / "tests" / "lrs_checkpoints.csv"
     out = []
-    with open(path, encoding="utf-8") as f:
-        for cp in csv.DictReader(f):
+    for name in CHECKPOINT_FILES:
+        path = ROOT / "tests" / name
+        if not path.exists():
+            continue
+        with open(path, encoding="utf-8") as f:
+            out += _check_file(conn, csv.DictReader(f), name)
+    return out
+
+
+def _check_file(conn, checkpoints, file_name: str) -> list[dict]:
+    out = []
+    if True:
+        for cp in checkpoints:
             row = conn.execute("""
                 SELECT l.km_quality,
                        round(ST_Distance(l.geom::geography,
@@ -487,12 +573,30 @@ def check_checkpoints(conn) -> list[dict]:
                 FROM borna.locate(%s, %s, %s) l""",
                 (float(cp["lon"]), float(cp["lat"]), cp["road"], cp["km"],
                  cp.get("county") or None)).fetchone()
-            out.append({**cp, "km_quality": row[0] if row else None,
+            out.append({"file": file_name, "road": cp["road"], "km": cp["km"],
+                        "county": cp.get("county") or "", "note": cp["note"],
+                        "km_quality": row[0] if row else None,
                         "error_m": float(row[1]) if row else None})
     return out
 
 
+def check_holdout(conn, held_out: list[tuple]) -> list[float]:
+    """Distance (m) from each held-out milestone to where locate() puts its km.
+    National roads only: milestones carry no county."""
+    errors = []
+    for ref, km, osm_id in held_out:
+        row = conn.execute("""
+            SELECT ST_Distance(l.geom::geography, p.geom::geography)
+            FROM borna.locate(%s, %s::numeric) l, raw.osm_road_points p
+            WHERE p.osm_id = %s AND ST_DWithin(l.geom::geography, p.geom::geography, 5000)""",
+            (ref, km, osm_id)).fetchone()
+        if row:
+            errors.append(row[0])
+    return errors
+
+
 def main() -> int:
+    holdout = "--holdout" in sys.argv
     with psycopg.connect(PG_DSN) as conn:
         conn.execute((ROOT / "pipeline" / "sql" / "10_lrs.sql").read_text())
         print("lrs: normalising OSM road numbers…", flush=True)
@@ -500,7 +604,7 @@ def main() -> int:
         n_ways, n_refs = conn.execute(
             "SELECT count(DISTINCT osm_id), count(DISTINCT ref) FROM borna.osm_way_ref").fetchone()
         print(f"lrs: {n_ways:,} ways carry {n_refs:,} distinct road numbers")
-        results = build(conn)
+        results, held_out = build(conn, holdout)
         conn.commit()
         checkpoints = check_checkpoints(conn)
 
@@ -556,6 +660,16 @@ def main() -> int:
         print(f"  {'✓' if ok else '✗'} {cp['road']} km {cp['km']}: {err} "
               f"({cp['km_quality']})  {cp['note']}")
     print(f"{len(checkpoints) - fails}/{len(checkpoints)} within {CHECKPOINT_TARGET_M} m")
+    if holdout:
+        with psycopg.connect(PG_DSN) as conn:
+            errs = sorted(check_holdout(conn, held_out))
+        if errs:
+            def pct(p):
+                return errs[min(len(errs) - 1, int(p * len(errs)))]
+            within = sum(e <= CHECKPOINT_TARGET_M for e in errs)
+            print(f"held-out milestones: {len(errs)} of {len(held_out)} located; median "
+                  f"{pct(0.5):.0f} m, 80% within {pct(0.8):.0f} m, 95% within {pct(0.95):.0f} m; "
+                  f"{within} ({100 * within / len(errs):.0f}%) within {CHECKPOINT_TARGET_M} m")
     return 0 if results else 1
 
 

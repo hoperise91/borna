@@ -17,14 +17,14 @@ COUNTIES = {
 }
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
     """Upper case without diacritics: 'Bistrița-Năsăud' -> 'BISTRITA-NASAUD'."""
     text = unicodedata.normalize("NFKD", text)
     return "".join(c for c in text if not unicodedata.combining(c)).upper().strip()
 
 
 def county_code(name: str) -> str:
-    key = re.sub(r"\s*-\s*", "-", _fold(name))
+    key = re.sub(r"\s*-\s*", "-", fold(name))
     if key not in COUNTIES:
         raise ValueError(f"unknown county {name!r}")
     return COUNTIES[key]

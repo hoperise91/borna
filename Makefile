@@ -61,7 +61,7 @@ register: setup db-up ## Phase 1.3: parse HG 540/2000 annexes into borna.road
 	$(RUN) borna.register
 
 lrs: setup db-up ## Phase 2: match register to geometry, calibrate km
-	$(RUN) borna.lrs
+	$(RUN) borna.lrs $(ARGS)
 
 tiles: setup db-up ## Phase 3: export PMTiles + per-county downloads to data/out/
 	$(RUN) borna.tiles

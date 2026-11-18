@@ -49,3 +49,21 @@ LANGUAGE sql STABLE AS $$
     ORDER BY r.county IS NULL DESC, s.sequence
     LIMIT 1
 $$;
+
+-- The reverse of locate(): the km of the point on road p_ref nearest to p_point, and how far
+-- the point is from the road.
+CREATE OR REPLACE FUNCTION measure(p_ref text, p_point geometry, p_county text DEFAULT NULL)
+RETURNS TABLE (road_id integer, km numeric, offset_m double precision, km_quality text)
+LANGUAGE sql STABLE AS $$
+    SELECT s.road_id,
+           round((s.km_from + (s.km_to - s.km_from) * ST_LineLocatePoint(
+               ST_Transform(s.geom, 3844), ST_Transform(p_point, 3844)))::numeric, 3),
+           ST_Distance(ST_Transform(s.geom, 3844), ST_Transform(p_point, 3844)),
+           s.km_quality
+    FROM borna.road_segment s
+    JOIN borna.road r USING (road_id)
+    WHERE r.ref = upper(replace(p_ref, ' ', ''))
+      AND (r.county IS NULL OR r.county = p_county)
+    ORDER BY ST_Transform(s.geom, 3844) <-> ST_Transform(p_point, 3844)
+    LIMIT 1
+$$;

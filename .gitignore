@@ -18,3 +18,7 @@ web/.astro/
 # Env & OS
 .env
 .DS_Store
+
+# Private QA points (e.g. read from Google Street View): never publish
+tests/local_checkpoints.csv
+*.numbers

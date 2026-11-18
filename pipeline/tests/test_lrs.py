@@ -89,3 +89,11 @@ def test_attach_junctions_extends_path_to_the_other_road():
     new, controls = attach_junctions(path, other, None, 0.0, 1.0)
     assert new.length == pytest.approx(1080)
     assert [(c.pos, c.km) for c in controls] == [(0, 0.0)]
+
+
+def test_stop_names():
+    from borna.lrs import stop_names
+    assert stop_names("Ghimbav (DN 1) - Brașov") == ("GHIMBAV", "BRASOV")
+    assert stop_names("Limită județ Brașov - Aita Mare (DJ 103E) - Vârghiș") == (None, "VARGHIS")
+    assert stop_names("Mun. Sfântu Gheorghe - Băile Șugaș") == ("SFANTU GHEORGHE", "BAILE SUGAS")
+    assert stop_names("DN 1C - Muncel") == (None, "MUNCEL")

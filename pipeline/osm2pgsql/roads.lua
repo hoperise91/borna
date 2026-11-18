@@ -78,6 +78,22 @@ local counties = osm2pgsql.define_table({
     },
 })
 
+-- Named places, to orient roads whose official route runs from one locality to another.
+local PLACE_TYPES = {
+    city = true, town = true, village = true, hamlet = true, suburb = true,
+    quarter = true, neighbourhood = true, isolated_dwelling = true, locality = true,
+}
+local places = osm2pgsql.define_table({
+    name = 'osm_places',
+    schema = SCHEMA,
+    ids = { type = 'node', id_column = 'osm_id' },
+    columns = {
+        { column = 'name', type = 'text', not_null = true },
+        { column = 'place', type = 'text', not_null = true },
+        { column = 'geom', type = 'point', projection = SRID, not_null = true },
+    },
+})
+
 local function point_kind(t)
     if t.highway == 'milestone' then return 'milestone' end
     if t.highway == 'motorway_junction' then return 'motorway_junction' end
@@ -89,6 +105,9 @@ end
 
 function osm2pgsql.process_node(object)
     local t = object.tags
+    if t.place and PLACE_TYPES[t.place] and t.name then
+        places:insert({ name = t.name, place = t.place, geom = object:as_point() })
+    end
     local kind = point_kind(t)
     if not kind then return end
     points:insert({
