@@ -9,6 +9,7 @@ dependencies = [
   "shapely>=2.0",
   "pyproj>=3.6",
   "pdfplumber>=0.11",
+  "lxml>=5.0",
   "psycopg[binary]>=3.2",
   "sqlalchemy>=2.0",
   "geoalchemy2>=0.15",

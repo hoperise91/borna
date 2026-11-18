@@ -19,6 +19,8 @@ Romania's open road database: an NVDB-style portal built from public data. The p
 - `pipeline/sql/`: schema and SQL. `00_schema.sql` runs on first DB start. Schemas: `raw` (untouched imports) and `borna` (the reference network).
 - `pipeline/osm2pgsql/roads.lua`: flex style → `raw.osm_roads`, `raw.osm_road_points` (milestones, junctions, level crossings, tolls, borders), `raw.osm_road_routes` (route relations with ordered `way_ids`).
 - Downloads write `data/raw/<source>/manifest.json`; `make import` loads them and upserts `borna.source`. Overture lands in `raw.overture_segment` / `raw.overture_connector` (nested fields as jsonb). Its bbox covers neighbouring countries too: clip with GISCO boundaries (Phase 1 step 6).
+- `make register` parses the HG 540/2000 annexes (`data/raw/hg540/anexe.html`, newest consolidation from legislatie.just.ro) into `borna.register_entry` (one row per published table row, lists `national`, `county_dn`, `dj`, `dc`, `dp`) and derives `borna.road` (one row per ref; national roads have `county` NULL; county codes are ISO 3166-2:RO). It checks parsed sums against the totals printed in the act and writes `data/out/hg540/{register,totals_check,amendments,problems}.csv`. Known typos in the act go in `REF_CORRECTIONS` with a reason; never silently change official values.
+- Schema changes: edit `pipeline/sql/00_schema.sql`, then `make db-reset` (and re-run `make import register`) or apply the matching ALTER by hand.
 - `data/`: git-ignored (`raw/` downloads, `interim/`, `out/` exports). Never commit data.
 - `web/`: Astro site (Phase 3).
 - `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m.

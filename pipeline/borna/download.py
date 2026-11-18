@@ -5,7 +5,9 @@ Each download is skipped when the local copy already matches the published versi
 """
 
 import hashlib
+import re
 import sys
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 import duckdb
@@ -17,6 +19,8 @@ from borna.config import RO_BBOX
 GEOFABRIK_URL = "https://download.geofabrik.de/europe/romania-latest.osm.pbf"
 OVERTURE_STAC = "https://stac.overturemaps.org/catalog.json"
 OVERTURE_S3 = "s3://overturemaps-us-west-2/release/{release}/theme=transportation/type={type}/*"
+LEGIS = "https://legislatie.just.ro/Public/"
+HG540_DOC_ID = 23370  # HG 540/2000, base act; its consolidations and annexes are separate documents
 
 
 def _md5(path) -> str:
@@ -109,7 +113,50 @@ def download_overture() -> None:
     )
 
 
-SOURCES = {"osm": download_osm, "overture": download_overture}
+def _legis_get(path: str) -> str:
+    r = requests.get(LEGIS + path, headers={"User-Agent": "borna-pipeline"}, timeout=300)
+    r.raise_for_status()
+    return r.text
+
+
+def download_hg540() -> None:
+    # The base act's page lists every consolidation ("Consolidarea din DD.MM.YYYY"); take the newest.
+    page = _legis_get(f"DetaliiDocumentAfis/{HG540_DOC_ID}")
+    consolidations = {
+        datetime.strptime(d, "%d.%m.%Y").date(): doc_id
+        for d, doc_id in re.findall(r"Consolidarea din ([\d.]{10})'[^>]*href='[^']*DetaliiDocument/(\d+)'", page)
+    }
+    if not consolidations:
+        raise RuntimeError("hg540: no consolidations found on legislatie.just.ro, page layout changed?")
+    date = max(consolidations)
+    current = sources.read_manifest("hg540")
+    if sources.files_present(current) and current["version"] == date.isoformat():
+        print(f"hg540: up to date (forma consolidată {date:%d.%m.%Y})")
+        return
+
+    consolidated = _legis_get(f"DetaliiDocument/{consolidations[date]}")
+    m = re.search(r'DetaliiDocumentAfis/(\d+)">ANEXE', consolidated)
+    if not m:
+        raise RuntimeError("hg540: annex link not found in the consolidated text")
+    annex_url = LEGIS + f"DetaliiDocumentAfis/{m.group(1)}"
+    print(f"hg540: fetching annexes, forma consolidată {date:%d.%m.%Y} (~11 MB)…", flush=True)
+    out = sources.raw_dir("hg540") / "anexe.html"
+    out.write_text(_legis_get(f"DetaliiDocumentAfis/{m.group(1)}"), encoding="utf-8")
+
+    sources.write_manifest(
+        "hg540",
+        name="HG 540/2000, anexele 1-4 (încadrarea în categorii funcționale a drumurilor publice)",
+        url=annex_url,
+        licence="public domain (official act, Legea 8/1996 art. 9)",
+        attribution=f"HG 540/2000, forma consolidată {date:%d.%m.%Y}, legislatie.just.ro",
+        version=date.isoformat(),
+        files=[out.name],
+        consolidated_doc_url=LEGIS + f"DetaliiDocument/{consolidations[date]}",
+    )
+    print(f"hg540: saved {out.name}")
+
+
+SOURCES = {"osm": download_osm, "overture": download_overture, "hg540": download_hg540}
 
 
 def main(argv: list[str]) -> int:

@@ -24,16 +24,39 @@ CREATE TABLE source (
 CREATE TABLE road (
     road_id           serial PRIMARY KEY,
     ref               text NOT NULL,              -- normalised: 'A1', 'DN1', 'DJ103', 'DC15B'
-    category          text NOT NULL CHECK (category IN ('A', 'DX', 'DN', 'DJ', 'DC', 'street')),
-    county            text,                       -- SIRUTA county code or ISO 3166-2:RO; NULL for national roads
+    category          text NOT NULL CHECK (category IN ('A', 'DX', 'DN', 'V', 'DJ', 'DC', 'DP', 'street')),
+                                                  -- V = variantă ocolitoare (national bypass), DP = drum de utilitate privată
+    county            text,                       -- ISO 3166-2:RO code ('CV'); NULL for national roads
     route_desc        text,                       -- e.g. 'Brăiești (DN 2E) – gara Lucăcești – Măzănăești (DJ 209C)'
     km_from_official  numeric(9,3),
     km_to_official    numeric(9,3),
     length_official   numeric(9,3),               -- km
     legal_source      text,                       -- the act, e.g. 'HG 540/2000 anexa 2.38, mod. HG 782/2014'
     source_id         text NOT NULL REFERENCES source,
-    UNIQUE (ref, county)
+    UNIQUE NULLS NOT DISTINCT (ref, county)
 );
+
+-- HG 540/2000 annexes exactly as published: one row per table row. `road` is derived from it.
+CREATE TABLE register_entry (
+    entry_id      serial PRIMARY KEY,
+    annex         text NOT NULL,                  -- '1', '2.15', '3.15', '4.6'
+    list          text NOT NULL CHECK (list IN ('national', 'county_dn', 'dj', 'dc', 'dp')),
+    county        text,                           -- ISO 3166-2:RO code; NULL for the national list
+    nr_crt        text,
+    ref           text NOT NULL,                  -- normalised, e.g. 'DJ103G'
+    ref_published text NOT NULL,                  -- as printed, e.g. 'DJ 103 G'
+    category      text NOT NULL,
+    route_desc    text,
+    km_from       numeric(9,3),
+    km_to         numeric(9,3),
+    length_km     numeric(9,3),
+    owner         text,                           -- annex 4 (DP) only
+    table_no      integer NOT NULL,               -- position in the published document
+    row_no        integer NOT NULL,
+    legal_source  text NOT NULL,
+    source_id     text NOT NULL REFERENCES source
+);
+CREATE INDEX register_entry_ref_idx ON register_entry (ref, county);
 
 CREATE TABLE road_segment (
     seg_id      serial PRIMARY KEY,
