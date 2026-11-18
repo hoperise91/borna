@@ -50,6 +50,9 @@ const layers = [
       </div>
       <div class="legend" id="legend"></div>
       <div class="layers-panel" id="layers-panel" hidden></div>
+      <a class="maptiler-logo" id="maptiler-logo" href="https://www.maptiler.com" target="_blank" rel="noopener" hidden>
+        <img src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo" width="90" height="23" />
+      </a>
       <div class="map-loading" id="map-loading" role="status"><span class="spinner"></span>{s.loading_map}</div>
     </div>
   </main>
@@ -197,6 +200,8 @@ const layers = [
   .rt .shield { min-width: 36px; height: 20px; font-size: 13px; }
   .rt input:not(:checked) ~ * { opacity: .45; }
   .rt-quick { display: flex; gap: 6px; margin-top: 12px; }
+  .maptiler-logo { position: absolute; right: 12px; bottom: 30px; z-index: 2; line-height: 0; }
+  .maptiler-logo[hidden] { display: none; }
   .map-loading {
     position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
     display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;

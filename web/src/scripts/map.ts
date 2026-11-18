@@ -19,15 +19,23 @@ const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"; //
 const ROAD_TYPES = ["A", "DN", "V", "DJ", "DC", "DP"];
 
 // Background maps: free, no keys. Raster ones get a minimal style.
-const BASEMAPS: { id: string; style: string | (() => maplibregl.StyleSpecification) }[] = [
+const MAPTILER_KEY: string | undefined = import.meta.env.PUBLIC_MAPTILER_KEY;
+const BASEMAPS: { id: string; maptiler?: boolean;
+  style: string | (() => string | maplibregl.StyleSpecification) }[] = [
   { id: "light", style: `${OFM}positron` },
   { id: "dark", style: `${OFM}dark` },
   { id: "detail", style: `${OFM}liberty` },
-  { id: "topo", style: () => raster("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    "Map data © OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)", 17, ["a", "b", "c"]) },
-  { id: "satellite", style: () => raster(
-    "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
-    "Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0", 14) },
+  // Terrain and satellite come from MapTiler when a key is configured (sharp and fast), else
+  // from free fallbacks (OpenTopoMap is slow; Sentinel-2 imagery is only 10 m per pixel).
+  { id: "topo", maptiler: true, style: () => MAPTILER_KEY
+    ? `https://api.maptiler.com/maps/topo-v2/style.json?key=${MAPTILER_KEY}`
+    : raster("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+      "Map data © OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)", 17, ["a", "b", "c"]) },
+  { id: "satellite", maptiler: true, style: () => MAPTILER_KEY
+    ? raster(`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
+      "© MapTiler © OpenStreetMap contributors", 20, undefined, 512)
+    : raster("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
+      "Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0", 14) },
   { id: "none", style: () => ({
     version: 8, glyphs: GLYPHS, sources: {},
     layers: [{ id: "bg", type: "background", paint: { "background-color":
@@ -35,12 +43,13 @@ const BASEMAPS: { id: string; style: string | (() => maplibregl.StyleSpecificati
   }) },
 ];
 
-function raster(url: string, attribution: string, maxzoom: number, subdomains?: string[]): maplibregl.StyleSpecification {
+function raster(url: string, attribution: string, maxzoom: number, subdomains?: string[],
+  tileSize = 256): maplibregl.StyleSpecification {
   const tiles = subdomains ? subdomains.map((d) => url.replace("{s}", d)) : [url];
   return {
     version: 8,
     glyphs: GLYPHS,
-    sources: { bg: { type: "raster", tiles, tileSize: 256, maxzoom, attribution } },
+    sources: { bg: { type: "raster", tiles, tileSize, maxzoom, attribution } },
     layers: [{ id: "bg", type: "raster", source: "bg" }],
   };
 }
@@ -156,7 +165,11 @@ export function initMap(root: HTMLElement) {
   // style, so the overlays (and the current mode, road types and selection) are added again.
   function addOverlays() {
     if (map.getSource("borna")) return;
-    const before = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    // Below the basemap's labels but above all its lines and fills: the first symbol layer
+    // after the last non-symbol layer (some styles put a few labels early).
+    const layers = map.getStyle().layers;
+    const lastShape = layers.map((l) => l.type !== "symbol").lastIndexOf(true);
+    const before = layers.slice(lastShape + 1).find((l) => l.type === "symbol")?.id;
     map.addSource("borna", {
       type: "vector",
       url: `pmtiles://${new URL(`${DATA_URL}/borna.pmtiles`, location.href).href}`,
@@ -345,7 +358,15 @@ export function initMap(root: HTMLElement) {
     renderPanel();
     loading(true);
     map.setStyle(basemapStyle(id)); // style.load -> addOverlays()
+    showMaptilerLogo();
   }
+
+  // MapTiler's free plan requires its logo while one of its maps is shown.
+  const mtLogo = root.querySelector<HTMLElement>("#maptiler-logo")!;
+  function showMaptilerLogo() {
+    mtLogo.hidden = !(MAPTILER_KEY && BASEMAPS.find((b) => b.id === basemap)?.maptiler);
+  }
+  showMaptilerLogo();
 
   // "Loading map…" until the map has drawn everything (some basemap servers are slow).
   const loadingEl = root.querySelector<HTMLElement>("#map-loading")!;
