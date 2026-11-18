@@ -65,6 +65,19 @@ local routes = osm2pgsql.define_table({
     },
 })
 
+-- County (județ) boundaries, admin_level 4, incl. Municipiul București. Precise enough to place
+-- the HG 540 county-border km positions (GISCO 1:1M is not).
+local counties = osm2pgsql.define_table({
+    name = 'osm_counties',
+    schema = SCHEMA,
+    ids = { type = 'relation', id_column = 'osm_id' },
+    columns = {
+        { column = 'name', type = 'text' },
+        { column = 'tags', type = 'jsonb' },
+        { column = 'geom', type = 'multipolygon', projection = SRID, not_null = true },
+    },
+})
+
 local function point_kind(t)
     if t.highway == 'milestone' then return 'milestone' end
     if t.highway == 'motorway_junction' then return 'motorway_junction' end
@@ -110,6 +123,10 @@ end
 
 function osm2pgsql.process_relation(object)
     local t = object.tags
+    if t.type == 'boundary' and t.boundary == 'administrative' and t.admin_level == '4' then
+        counties:insert({ name = t.name, tags = t, geom = object:as_multipolygon() })
+        return
+    end
     if t.type ~= 'route' or t.route ~= 'road' then return end
     local way_ids = {}
     for _, m in ipairs(object.members) do
