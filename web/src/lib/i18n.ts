@@ -90,6 +90,17 @@ const ro = {
   select_county: "Alege un județ",
   click_hint: "Apăsați pe un drum de pe hartă pentru detalii.",
   aadt_note: "Doar drumurile cu peste 3 milioane de vehicule pe an (date deschise, Directiva 2002/49/CE).",
+  layers_button: "Straturi: harta de fundal și tipurile de drum",
+  basemap: "Harta de fundal",
+  road_types: "Tipuri de drum",
+  show_all: "Toate",
+  only_main: "Doar autostrăzi și DN",
+  bm_light: "Simplă",
+  bm_dark: "Întunecată",
+  bm_detail: "Detaliată",
+  bm_topo: "Relief",
+  bm_satellite: "Satelit",
+  bm_none: "Fără hartă",
 } as const;
 
 export type Strings = Record<keyof typeof ro, string>;
@@ -177,6 +188,17 @@ const en: Strings = {
   select_county: "Choose a county",
   click_hint: "Click a road on the map for details.",
   aadt_note: "Only roads with more than 3 million vehicles a year (open data, Directive 2002/49/EC).",
+  layers_button: "Layers: background map and road types",
+  basemap: "Background map",
+  road_types: "Road types",
+  show_all: "All",
+  only_main: "Motorways and DN only",
+  bm_light: "Light",
+  bm_dark: "Dark",
+  bm_detail: "Detailed",
+  bm_topo: "Terrain",
+  bm_satellite: "Satellite",
+  bm_none: "No map",
 };
 
 export const strings: Record<Lang, Strings> = { ro, en };

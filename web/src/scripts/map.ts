@@ -3,6 +3,7 @@ import * as maplibregl from "maplibre-gl";
 import type { ExpressionSpecification, GeoJSONSource, LngLatLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import type { FeatureCollection } from "geojson";
 import { Protocol } from "pmtiles";
 import { countiesSorted, countyName } from "../lib/counties";
 import type { Strings } from "../lib/i18n";
@@ -13,7 +14,39 @@ import {
 } from "../lib/roads";
 import { liveStrip } from "../lib/strip";
 
-const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
+const OFM = "https://tiles.openfreemap.org/styles/";
+const ROAD_TYPES = ["A", "DN", "V", "DJ", "DC", "DP"];
+
+// Background maps: free, no keys. Raster ones get a minimal style.
+const BASEMAPS: { id: string; style: string | (() => maplibregl.StyleSpecification) }[] = [
+  { id: "light", style: `${OFM}positron` },
+  { id: "dark", style: `${OFM}dark` },
+  { id: "detail", style: `${OFM}liberty` },
+  { id: "topo", style: () => raster("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    "Map data © OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)", 17, ["a", "b", "c"]) },
+  { id: "satellite", style: () => raster(
+    "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
+    "Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0", 14) },
+  { id: "none", style: () => ({
+    version: 8, sources: {},
+    layers: [{ id: "bg", type: "background", paint: { "background-color":
+      getComputedStyle(document.documentElement).getPropertyValue("--paper").trim() || "#f6f3ec" } }],
+  }) },
+];
+
+function raster(url: string, attribution: string, maxzoom: number, subdomains?: string[]): maplibregl.StyleSpecification {
+  const tiles = subdomains ? subdomains.map((d) => url.replace("{s}", d)) : [url];
+  return {
+    version: 8,
+    sources: { bg: { type: "raster", tiles, tileSize: 256, maxzoom, attribution } },
+    layers: [{ id: "bg", type: "raster", source: "bg" }],
+  };
+}
+
+function basemapStyle(id: string): string | maplibregl.StyleSpecification {
+  const b = BASEMAPS.find((x) => x.id === id) ?? BASEMAPS[0];
+  return typeof b.style === "string" ? b.style : b.style();
+}
 const RO_BOUNDS: [[number, number], [number, number]] = [[20.2, 43.6], [29.75, 48.3]];
 type Mode = "category" | "surface" | "maxspeed" | "aadt" | "quality";
 
@@ -44,9 +77,17 @@ export function initMap(root: HTMLElement) {
   maplibregl.setWorkerUrl(workerUrl); // bundled by Vite (an ES-module worker)
   const protocol = new Protocol();
   maplibregl.addProtocol("pmtiles", protocol.tile);
+  const stored = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const store = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+
+  let basemap = BASEMAPS.find((b) => b.id === stored("borna.basemap"))?.id ?? "light";
+  let visibleCats = new Set<string>(JSON.parse(stored("borna.cats") ?? "null") ?? ROAD_TYPES);
+  type FC = FeatureCollection;
+  let selData: FC = { type: "FeatureCollection", features: [] };
+
   const map = new maplibregl.Map({
     container: root.querySelector<HTMLElement>("#map")!,
-    style: BASEMAP,
+    style: basemapStyle(basemap),
     bounds: RO_BOUNDS,
     fitBoundsOptions: { padding: 24 },
     attributionControl: {
@@ -56,6 +97,7 @@ export function initMap(root: HTMLElement) {
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-right");
+  map.addControl(layersControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
 
   const pin = new maplibregl.Marker({ element: Object.assign(document.createElement("div"), { className: "km-pin" }) });
@@ -75,21 +117,28 @@ export function initMap(root: HTMLElement) {
   const qualityColor: ExpressionSpecification = [
     "match", ["get", "q"], ...Object.entries(QUALITY_COLOR).flat(), "#999",
   ] as unknown as ExpressionSpecification;
+  const typeFilter = (): ExpressionSpecification => ["in", ["get", "t"], ["literal", [...visibleCats]]];
+  let hoverKey = "";
+  const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt"];
 
-  map.on("load", () => {
+  // Bornă's sources and layers. Runs on every style load: switching the basemap replaces the
+  // style, so the overlays (and the current mode, road types and selection) are added again.
+  function addOverlays() {
+    if (map.getSource("borna")) return;
     const before = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
     map.addSource("borna", {
       type: "vector",
       url: `pmtiles://${new URL(`${DATA_URL}/borna.pmtiles`, location.href).href}`,
     });
-    map.addSource("sel", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addSource("sel", { type: "geojson", data: selData });
     const line = { "line-join": "round", "line-cap": "round" } as const;
+    const dark = darkBackground();
 
     map.addLayer({ id: "roads-casing", type: "line", source: "borna", "source-layer": "roads", layout: line,
-      paint: { "line-color": "#ffffff", "line-width": width(1, 2), "line-opacity": 0.85 } }, before);
+      paint: { "line-color": dark ? "#111111" : "#ffffff", "line-width": width(1, 2), "line-opacity": dark ? 0.6 : 0.85 } }, before);
     map.addLayer({ id: "road-hover", type: "line", source: "borna", "source-layer": "roads", layout: line,
       filter: ["==", ["get", "k"], ""],
-      paint: { "line-color": "#1d1c1a", "line-opacity": 0.28, "line-width": width(1, 7) } }, before);
+      paint: { "line-color": dark ? "#ffffff" : "#1d1c1a", "line-opacity": 0.3, "line-width": width(1, 7) } }, before);
     map.addLayer({ id: "sel-halo", type: "line", source: "sel", layout: line,
       paint: { "line-color": "#ffcf33", "line-width": ["interpolate", ["linear"], ["zoom"], 5, 9, 14, 18],
         "line-opacity": 0.9, "line-blur": 1 } }, before);
@@ -112,38 +161,118 @@ export function initMap(root: HTMLElement) {
       } }, before);
     map.addLayer({ id: "sel-line", type: "line", source: "sel", layout: line,
       paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 5, 3, 14, 8] } }, before);
-
-    // hover
-    map.on("mousemove", "roads", (e) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      map.getCanvas().style.cursor = "pointer";
-      const k = f.properties.k as string;
-      map.setFilter("road-hover", ["==", ["get", "k"], k]);
-      hoverPopup.setLngLat(e.lngLat)
-        .setHTML(`${shield(f.properties.r, f.properties.t)}${f.properties.k.includes("-")
-          ? ` <span class="small muted">${esc(countyName(k.split("-")[0]))}</span>` : ""}`)
-        .addTo(map);
-    });
-    map.on("mouseleave", "roads", () => {
-      map.getCanvas().style.cursor = "";
-      map.setFilter("road-hover", ["==", ["get", "k"], ""]);
-      hoverPopup.remove();
-    });
-    // click: the most important road under the pointer
-    map.on("click", (e) => {
-      const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
-      const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
-      if (!feats.length) return;
-      feats.sort((a, b) => CATEGORY_ORDER.indexOf(a.properties.t) - CATEGORY_ORDER.indexOf(b.properties.t));
-      hoverPopup.remove();
-      selectRoad(feats[0].properties.k as string, { at: [e.lngLat.lng, e.lngLat.lat], push: true });
-    });
-
-    root.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
     applyMode();
+    applyRoadTypes();
+  }
+  map.on("style.load", addOverlays);
+
+  // Satellite and dark maps (and "no map" on a dark page) need dark road casings.
+  function darkBackground() {
+    return basemap === "satellite" || basemap === "dark"
+      || (basemap === "none" && matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+
+  function setSel(fc: FC) {
+    selData = fc;
+    (map.getSource("sel") as GeoJSONSource | undefined)?.setData(fc);
+  }
+
+  // hover (layer-scoped listeners survive style changes)
+  map.on("mousemove", "roads", (e) => {
+    const f = e.features?.[0];
+    if (!f) return;
+    map.getCanvas().style.cursor = "pointer";
+    hoverKey = f.properties.k as string;
+    map.setFilter("road-hover", ["==", ["get", "k"], hoverKey]);
+    hoverPopup.setLngLat(e.lngLat)
+      .setHTML(`${shield(f.properties.r, f.properties.t)}${hoverKey.includes("-")
+        ? ` <span class="small muted">${esc(countyName(hoverKey.split("-")[0]))}</span>` : ""}`)
+      .addTo(map);
+  });
+  map.on("mouseleave", "roads", () => {
+    map.getCanvas().style.cursor = "";
+    hoverKey = "";
+    map.setFilter("road-hover", ["==", ["get", "k"], ""]);
+    hoverPopup.remove();
+  });
+  // click: the most important road under the pointer
+  map.on("click", (e) => {
+    if (!map.getLayer("roads")) return;
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
+    const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
+    if (!feats.length) return;
+    feats.sort((a, b) => CATEGORY_ORDER.indexOf(a.properties.t) - CATEGORY_ORDER.indexOf(b.properties.t));
+    hoverPopup.remove();
+    selectRoad(feats[0].properties.k as string, { at: [e.lngLat.lng, e.lngLat.lat], push: true });
+  });
+  map.once("load", () => {
+    root.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
     restoreFromUrl();
   });
+
+  // ---- layers panel: background map + road types ----------------------------------------
+  const panel = root.querySelector<HTMLElement>("#layers-panel")!;
+  const T = s as Record<string, string>;
+  function renderPanel() {
+    panel.innerHTML = `
+      <h3>${esc(s.basemap)}</h3>
+      <div class="bm-grid">${BASEMAPS.map((b) => `
+        <button type="button" class="bm" data-bm="${b.id}" aria-pressed="${b.id === basemap}">
+          <span class="bm-thumb" data-thumb="${b.id}"></span><span>${esc(T[`bm_${b.id}`])}</span></button>`).join("")}
+      </div>
+      <h3>${esc(s.road_types)}</h3>
+      <div class="rt-list">${ROAD_TYPES.map((c) => `
+        <label class="rt"><input type="checkbox" data-cat="${c}" ${visibleCats.has(c) ? "checked" : ""}/>
+          <span class="rt-line" style="background:${CATEGORY_COLOR[c]}"></span>
+          <span class="shield" data-cat="${c}">${c}</span><span>${esc(cat(c))}</span></label>`).join("")}
+      </div>
+      <div class="rt-quick">
+        <button type="button" class="chip" data-quick="all">${esc(s.show_all)}</button>
+        <button type="button" class="chip" data-quick="main">${esc(s.only_main)}</button>
+      </div>`;
+  }
+  renderPanel();
+  panel.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const bm = t.closest<HTMLElement>("[data-bm]");
+    if (bm) return setBasemap(bm.dataset.bm!);
+    const q = t.closest<HTMLElement>("[data-quick]");
+    if (q) {
+      visibleCats = new Set(q.dataset.quick === "main" ? ["A", "DN", "V"] : ROAD_TYPES);
+      renderPanel();
+      applyRoadTypes();
+    }
+  });
+  panel.addEventListener("change", (e) => {
+    const box = e.target as HTMLInputElement;
+    if (!box.dataset.cat) return;
+    if (box.checked) visibleCats.add(box.dataset.cat); else visibleCats.delete(box.dataset.cat);
+    applyRoadTypes();
+  });
+  document.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (!panel.hidden && !panel.contains(t) && !t.closest(".layers-btn")) togglePanel(false);
+  });
+
+  function togglePanel(open = panel.hidden) {
+    panel.hidden = !open;
+    root.querySelector(".layers-btn")?.setAttribute("aria-expanded", String(open));
+  }
+
+  function setBasemap(id: string) {
+    if (id === basemap) return;
+    basemap = id;
+    store("borna.basemap", id);
+    renderPanel();
+    map.setStyle(basemapStyle(id)); // style.load -> addOverlays()
+  }
+
+  function applyRoadTypes() {
+    store("borna.cats", JSON.stringify([...visibleCats]));
+    if (!map.getLayer("roads")) return;
+    for (const id of ROAD_LAYERS) map.setFilter(id, typeFilter());
+    applyMode();
+  }
 
   // ---- layer modes & legend -----------------------------------------------------------
   root.querySelectorAll<HTMLButtonElement>(".layer-switch button").forEach((b) =>
@@ -153,23 +282,50 @@ export function initMap(root: HTMLElement) {
       applyMode();
     }));
 
+  legend.addEventListener("click", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-toggle]");
+    if (!row) return;
+    const c = row.dataset.toggle!;
+    if (visibleCats.has(c)) visibleCats.delete(c); else visibleCats.add(c);
+    renderPanel();
+    applyRoadTypes();
+  });
+
   function applyMode() {
     if (!map.getLayer("roads")) return;
-    const neutral = "#cdc6b8";
+    const neutral = darkBackground() ? "#9a958a" : "#cdc6b8";
     map.setPaintProperty("roads", "line-color", mode === "category" ? catColor : mode === "quality" ? qualityColor : neutral);
     for (const id of ["surface", "maxspeed", "aadt"]) map.setLayoutProperty(id, "visibility", id === mode ? "visible" : "none");
     const row = (color: string, label: string, h = 5) =>
       `<div class="row"><span class="sw" style="background:${color};height:${h}px"></span>${esc(label)}</div>`;
     let html = "";
-    if (mode === "category") html = ["A", "DN", "V", "DJ", "DC", "DP"].map((c) => row(CATEGORY_COLOR[c], cat(c))).join("");
-    if (mode === "surface") html = Object.entries(SURFACE_COLOR).map(([k, c]) => row(c, (s as Record<string, string>)[`s_${k}`])).join("");
+    if (mode === "category") html = ROAD_TYPES.map((c) =>
+      `<button type="button" class="row toggle" data-toggle="${c}" aria-pressed="${visibleCats.has(c)}">
+        <span class="sw" style="background:${CATEGORY_COLOR[c]}"></span>${esc(cat(c))}</button>`).join("");
+    if (mode === "surface") html = Object.entries(SURFACE_COLOR).map(([k, c]) => row(c, T[`s_${k}`])).join("");
     if (mode === "maxspeed") html = [["#b2182b", "≤ 30"], ["#ef8a62", "50"], ["#f4c95d", "70"], ["#7fbf7b", "90"], ["#2c9c5a", "100–110"], ["#00563b", "130"]]
       .map(([c, l]) => row(c, `${l} km/h`)).join("");
     if (mode === "aadt") html = [["#cbc9e2", "< 10 000"], ["#9e9ac8", "10–20 000"], ["#6a51a3", "20–40 000"], ["#3f007d", "> 40 000"]]
       .map(([c, l], i) => row(c, l, 3 + i * 2)).join("") + `<div class="small muted" style="max-width:190px;margin-top:4px">${esc(s.aadt_note)}</div>`;
     if (mode === "quality") html = (["calibrated", "interpolated", "estimated"] as Quality[])
-      .map((q) => row(QUALITY_COLOR[q], `${qual(q)}: ${(s as Record<string, string>)[`q_${q}_long`]}`)).join("");
+      .map((q) => row(QUALITY_COLOR[q], `${qual(q)}: ${T[`q_${q}_long`]}`)).join("");
     legend.innerHTML = html;
+  }
+
+  // MapLibre control: the layers button, stacked with the zoom buttons.
+  function layersControl(): maplibregl.IControl {
+    return {
+      onAdd() {
+        const div = document.createElement("div");
+        div.className = "maplibregl-ctrl maplibregl-ctrl-group";
+        div.innerHTML = `<button type="button" class="layers-btn" aria-expanded="false" aria-controls="layers-panel"
+          title="${esc(s.layers_button)}" aria-label="${esc(s.layers_button)}">
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2.5 2 6.6l8 4.1 8-4.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m2 10 8 4.1 8-4.1M2 13.4l8 4.1 8-4.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>`;
+        div.querySelector("button")!.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(); });
+        return div;
+      },
+      onRemove() { /* never removed */ },
+    };
   }
 
   // ---- sidebar views --------------------------------------------------------------------
@@ -282,7 +438,7 @@ export function initMap(root: HTMLElement) {
     try { road = await fetchRoad(key); } catch { view.innerHTML = `<p class="msg">${esc(s.road_not_found)}</p>`; return; }
     selected = key;
     const color = CATEGORY_COLOR[road.category] ?? "#7c7c7c";
-    (map.getSource("sel") as GeoJSONSource | undefined)?.setData({
+    setSel({
       type: "FeatureCollection",
       features: road.segments.map(([, , , coords]) => ({
         type: "Feature", properties: { color }, geometry: { type: "LineString", coordinates: coords },
@@ -373,7 +529,7 @@ export function initMap(root: HTMLElement) {
 
   function clearSelection() {
     selected = null;
-    (map.getSource("sel") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
+    setSel({ type: "FeatureCollection", features: [] });
     pin.remove(); pinPopup.remove();
     const url = new URL(location.href);
     url.searchParams.delete("r"); url.searchParams.delete("km");

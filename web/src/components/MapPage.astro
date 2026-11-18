@@ -49,6 +49,7 @@ const layers = [
         ))}
       </div>
       <div class="legend" id="legend"></div>
+      <div class="layers-panel" id="layers-panel" hidden></div>
     </div>
   </main>
 </Base>
@@ -154,6 +155,47 @@ const layers = [
     border: 1px solid var(--line); font-size: 12.5px; min-width: 150px;
   }
   .legend .row { display: flex; align-items: center; gap: 8px; line-height: 1.7; }
+  .legend .toggle {
+    width: 100%; border: 0; background: none; padding: 0 4px; margin: 0 -4px; border-radius: 5px;
+    cursor: pointer; font-size: 12.5px; text-align: left; color: var(--ink);
+  }
+  .legend .toggle:hover { background: var(--paper); }
+  .legend .toggle[aria-pressed="false"] { color: var(--ink-3); text-decoration: line-through; }
+  .legend .toggle[aria-pressed="false"] .sw { opacity: .25; }
+
+  .layers-btn { display: grid; place-items: center; color: #333; }
+  .layers-btn[aria-expanded="true"] { background: #e8e4da !important; }
+  .layers-panel {
+    position: absolute; top: 12px; right: 52px; width: 300px; max-height: calc(100% - 24px); overflow-y: auto;
+    padding: 14px 16px 16px; border-radius: 12px; z-index: 3;
+    background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
+    animation: rise .18s ease-out;
+  }
+  .layers-panel h3 { font-size: 16px; margin: 2px 0 10px; }
+  .layers-panel h3 + .rt-list { margin-top: 0; }
+  .bm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .bm {
+    display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 5px 4px 6px;
+    border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer; font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .bm:hover { background: var(--paper); }
+  .bm[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+  .bm-thumb { width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; border: 1px solid var(--line-2); }
+  .bm-thumb[data-thumb="light"] { background: linear-gradient(135deg, #f2efe9 0 40%, #fff 40% 44%, #e6e1d6 44% 70%, #fff 70% 73%, #efeae0 73%); }
+  .bm-thumb[data-thumb="dark"] { background: linear-gradient(135deg, #22252b 0 40%, #3a3f48 40% 44%, #1b1d22 44% 70%, #3a3f48 70% 73%, #26292f 73%); }
+  .bm-thumb[data-thumb="detail"] { background: linear-gradient(160deg, #e9f1dc 0 35%, #fde7a8 35% 40%, #f4efe6 40% 65%, #cfe3f5 65%); }
+  .bm-thumb[data-thumb="topo"] { background: repeating-radial-gradient(circle at 70% 60%, #e7ddc0 0 5px, #d9cba2 5px 6px), #e7ddc0; }
+  .bm-thumb[data-thumb="satellite"] { background: linear-gradient(135deg, #4b5d35, #7a7a4c 45%, #3e5a3a 70%, #8a8565); }
+  .bm-thumb[data-thumb="none"] { background: var(--paper); background-image: linear-gradient(45deg, transparent 47%, var(--line-2) 47% 53%, transparent 53%); }
+  .rt-list { display: grid; gap: 2px; }
+  .rt { display: flex; align-items: center; gap: 9px; padding: 5px 4px; border-radius: 7px; cursor: pointer; font-size: 14px; }
+  .rt:hover { background: var(--paper); }
+  .rt input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+  .rt-line { width: 18px; height: 4px; border-radius: 2px; flex: none; }
+  .rt .shield { min-width: 36px; height: 20px; font-size: 13px; }
+  .rt input:not(:checked) ~ * { opacity: .45; }
+  .rt-quick { display: flex; gap: 6px; margin-top: 12px; }
   .legend .sw { width: 22px; height: 5px; border-radius: 3px; flex: none; }
   .map-wrap .maplibregl-popup-content {
     font-family: var(--font-body); border-radius: 9px; padding: 8px 11px;
@@ -178,5 +220,6 @@ const layers = [
     .view { overflow: visible; }
     .layer-switch { left: 8px; right: 8px; transform: none; overflow-x: auto; justify-content: flex-start; }
     .legend { bottom: 10px; left: 8px; }
+    .layers-panel { right: 48px; left: 8px; width: auto; top: 52px; }
   }
 </style>
