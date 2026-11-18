@@ -59,6 +59,7 @@ export function initMap(root: HTMLElement) {
   const lang = root.dataset.lang!;
   const roadUrl = root.dataset.roadUrl!;
   const view = root.querySelector<HTMLElement>("#view")!;
+  const sidebar = view;
   const homeHTML = view.innerHTML;
   const input = root.querySelector<HTMLInputElement>("#q")!;
   const clearBtn = root.querySelector<HTMLButtonElement>("#q-clear")!;
@@ -70,8 +71,14 @@ export function initMap(root: HTMLElement) {
   let mode: Mode = "category";
   let selected: string | null = null;
   let stopStrip: (() => void) | null = null;
-  const stack: (() => void)[] = []; // sidebar history for "Back"
-  let current: () => void = renderHome;
+  // Sidebar views and their history for "Back".
+  type View = { kind: "home" | "county" | "results" | "road"; render: () => void; county?: string };
+  const homeView: View = { kind: "home", render: renderHome };
+  const countyView = (code: string, filter: string): View =>
+    ({ kind: "county", county: code, render: () => renderCounty(code, filter) });
+  const stack: View[] = [];
+  let current: View = homeView;
+  let roadCounty: string | null = null; // county of the open road (at the chosen km), for "Back"
 
   // ---- map --------------------------------------------------------------------------
   maplibregl.setWorkerUrl(workerUrl); // bundled by Vite (an ES-module worker)
@@ -95,6 +102,7 @@ export function initMap(root: HTMLElement) {
       customAttribution: "© OpenStreetMap contributors (ODbL) · HG 540/2000 · INS · data.gov.ro · Bornă",
     },
   });
+  if (import.meta.env.DEV) (window as unknown as { bornaMap: unknown }).bornaMap = map; // for testing
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-right");
   map.addControl(layersControl(), "top-right");
@@ -200,7 +208,10 @@ export function initMap(root: HTMLElement) {
     if (!map.getLayer("roads")) return;
     const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
     const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
-    if (!feats.length) return;
+    if (!feats.length) { // empty map: deselect
+      if (current.kind === "road") back(); else if (selected) clearSelection();
+      return;
+    }
     feats.sort((a, b) => CATEGORY_ORDER.indexOf(a.properties.t) - CATEGORY_ORDER.indexOf(b.properties.t));
     hoverPopup.remove();
     selectRoad(feats[0].properties.k as string, { at: [e.lngLat.lng, e.lngLat.lat], push: true });
@@ -329,16 +340,32 @@ export function initMap(root: HTMLElement) {
   }
 
   // ---- sidebar views --------------------------------------------------------------------
-  function show(render: () => void, push: boolean) {
+  function show(view: View, push: boolean) {
     if (push) stack.push(current);
-    current = render;
+    current = view;
     stopStrip?.();
     stopStrip = null;
-    render();
-    view.scrollTop = 0;
+    view.render();
+    sidebar.scrollTop = 0;
   }
+
+  // Back from a road goes to a road list, never to an earlier road: the list it was chosen
+  // from (search results, or this county's list with its filter), else its county's list.
   function back() {
-    show(stack.pop() ?? renderHome, false);
+    if (current.kind === "road") {
+      clearSelection();
+      const prev = stack.at(-1);
+      if (prev && (prev.kind === "results" || (prev.kind === "county" && (!roadCounty || prev.county === roadCounty)))) {
+        stack.pop();
+        return show(prev, false);
+      }
+      if (roadCounty) {
+        stack.length = 0;
+        stack.push(homeView);
+        return show(countyView(roadCounty, "all"), false);
+      }
+    }
+    show(stack.pop() ?? homeView, false);
   }
   const backBtn = () => `<button type="button" class="back" data-back>← ${esc(s.back)}</button>`;
   view.addEventListener("click", (e) => {
@@ -347,7 +374,7 @@ export function initMap(root: HTMLElement) {
     const ex = t.closest<HTMLElement>("[data-example]");
     if (ex) { input.value = ex.dataset.example!; onSearch(true); return; }
     const county = t.closest<HTMLElement>("[data-county]");
-    if (county) return show(() => renderCounty(county.dataset.county!, "all"), true);
+    if (county) return show(countyView(county.dataset.county!, "all"), true);
     const road = t.closest<HTMLElement>("[data-road]");
     if (road) {
       const km = road.dataset.km ? Number(road.dataset.km) : undefined;
@@ -386,7 +413,7 @@ export function initMap(root: HTMLElement) {
       </div>
       <ul class="road-list">${shown.map((r) => roadItem(r)).join("")}</ul></section>`;
     view.querySelectorAll<HTMLButtonElement>("[data-filter]").forEach((b) =>
-      b.addEventListener("click", () => { current = () => renderCounty(code, b.dataset.filter!); current(); }));
+      b.addEventListener("click", () => { current = countyView(code, b.dataset.filter!); current.render(); }));
     const own = rows.filter((r) => r[2] === code && r[5]);
     const b = (own.length ? own : rows).map((r) => r[5]).filter(Boolean) as [number, number, number, number][];
     if (b.length) map.fitBounds([[Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1]))],
@@ -401,11 +428,11 @@ export function initMap(root: HTMLElement) {
     t = window.setTimeout(() => onSearch(false), 140);
   });
   root.querySelector("#search-form")!.addEventListener("submit", (e) => { e.preventDefault(); onSearch(true); });
-  clearBtn.addEventListener("click", () => { input.value = ""; clearBtn.hidden = true; stack.length = 0; show(renderHome, false); input.focus(); });
+  clearBtn.addEventListener("click", () => { input.value = ""; clearBtn.hidden = true; stack.length = 0; show(homeView, false); input.focus(); });
 
   function onSearch(enter: boolean) {
     const q = input.value.trim();
-    if (!q) { stack.length = 0; show(renderHome, false); return; }
+    if (!q) { stack.length = 0; show(homeView, false); return; }
     const p = parseQuery(q);
     let rows: IndexRow[] = [];
     if (p.ref) {
@@ -429,7 +456,8 @@ export function initMap(root: HTMLElement) {
           : counties.length ? "" : `<p class="msg">${esc(s.no_results)}</p>`}
       </section>`;
     };
-    if (current === render) render(); else { stack.length = 0; show(render, false); }
+    const results: View = { kind: "results", render };
+    if (current.kind === "results") { current = results; render(); } else { stack.length = 0; show(results, false); }
   }
 
   // ---- road selection -------------------------------------------------------------------
@@ -466,7 +494,10 @@ export function initMap(root: HTMLElement) {
     if (here) url.searchParams.set("km", here.km.toFixed(3)); else url.searchParams.delete("km");
     url.searchParams.delete("q");
     history.replaceState(null, "", url);
-    show(() => renderRoad(road, here, outOfRange), opts.push ?? false);
+    roadCounty = road.county ?? countyAtKm(road, here?.km);
+    // another road replaces the open one instead of stacking up
+    show({ kind: "road", render: () => renderRoad(road, here, outOfRange) },
+      (opts.push ?? false) && current.kind !== "road");
   }
 
   function placePin(p: LonLat, road: Road, km: number) {
@@ -527,6 +558,12 @@ export function initMap(root: HTMLElement) {
     }
   }
 
+  function countyAtKm(road: Road, km: number | undefined): string | null {
+    if (km == null || !road.counties) return null;
+    const sec = road.counties.find(([, f, t]) => f != null && t != null && km >= f && km <= t);
+    return sec ? sec[0] : null;
+  }
+
   function clearSelection() {
     selected = null;
     setSel({ type: "FeatureCollection", features: [] });
@@ -536,7 +573,7 @@ export function initMap(root: HTMLElement) {
     history.replaceState(null, "", url);
   }
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && selected) { clearSelection(); back(); }
+    if (e.key === "Escape" && current.kind === "road") back();
   });
 
   function restoreFromUrl() {
@@ -550,7 +587,7 @@ export function initMap(root: HTMLElement) {
   // ---- start ------------------------------------------------------------------------------
   fetchIndex().then((rows) => {
     index = rows;
-    if (current === renderHome) renderHome();
+    if (current.kind === "home") renderHome();
   });
   renderHome();
 }
