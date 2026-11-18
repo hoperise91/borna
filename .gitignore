@@ -1,0 +1,20 @@
+# Data — never committed (large, regenerable). Only .gitkeep placeholders are tracked.
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Node / Astro
+node_modules/
+web/dist/
+web/.astro/
+
+# Env & OS
+.env
+.DS_Store

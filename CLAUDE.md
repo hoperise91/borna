@@ -1,0 +1,26 @@
+# Bornă: conventions
+
+Romania's open road database: an NVDB-style portal built from public data. The plan lives in `docs/ROADMAP.md`. Work one roadmap step at a time and commit after each one.
+
+## Non-negotiables
+- **Public data only.** Use only sources listed in ROADMAP §2 (or similar public/open ones). No scraping behind logins and no data obtained by formal request until Phase 5.
+- **Source, date and licence on every value.** Every row in `road`, `road_segment`, `attribute_event` and `point_object` references `borna.source`. Attribute events and point objects also carry `source_date` and `licence`. Never merge values from two sources into one unlabelled value.
+- **CRS:** store geometry in **EPSG:4326**. Compute every length, distance and chainage in **EPSG:3844 (Stereo 70)**. Use constants from `pipeline/borna/config.py` and don't hard-code SRIDs.
+- **Linear referencing is the primary key.** Format positions as `DN1 km 27+400`; store them as numeric km (`27.400`, 3 decimals).
+- **Bilingual.** All user-facing text is Romanian by default (`/`), with English at `/en/`. Use proper diacritics (ș ț with comma below, not cedilla ş ţ).
+
+## Licensing
+- Code is MIT. OSM/Overture-derived layers are ODbL (share-alike), so keep them in separate files from other-licence layers.
+- HG 540 register: official act, public under Legea 8/1996 art. 9. Always cite the act and its amendments.
+- CESTRIN layers: attribution plus a take-down-on-request policy.
+
+## Layout
+- `pipeline/borna/`: Python 3.12 package. One module per Makefile target (`download`, `importer`, `register`, `lrs`, `tiles`).
+- `pipeline/sql/`: schema and SQL. `00_schema.sql` runs on first DB start. Schemas: `raw` (untouched imports) and `borna` (the reference network).
+- `pipeline/osm2pgsql/`: flex style.
+- `data/`: git-ignored (`raw/` downloads, `interim/`, `out/` exports). Never commit data.
+- `web/`: Astro site (Phase 3).
+- `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m.
+
+## Commands
+`make help` · `make check-tools` · `make setup` · `make db-up` · `make psql` · `make download|import|register|lrs|tiles|web-dev`
