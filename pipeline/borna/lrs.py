@@ -20,6 +20,7 @@ the official length.
 
 import csv
 import itertools
+import json
 import re
 import sys
 from collections import defaultdict
@@ -667,6 +668,11 @@ def main() -> int:
             def pct(p):
                 return errs[min(len(errs) - 1, int(p * len(errs)))]
             within = sum(e <= CHECKPOINT_TARGET_M for e in errs)
+            (out / "holdout.json").write_text(json.dumps({
+                "milestones_held_out": len(held_out), "located": len(errs),
+                "median_m": round(pct(0.5), 1), "p80_m": round(pct(0.8), 1),
+                "p95_m": round(pct(0.95), 1), "within_50m_share": round(within / len(errs), 3),
+            }, indent=2) + "\n")
             print(f"held-out milestones: {len(errs)} of {len(held_out)} located; median "
                   f"{pct(0.5):.0f} m, 80% within {pct(0.8):.0f} m, 95% within {pct(0.95):.0f} m; "
                   f"{within} ({100 * within / len(errs):.0f}%) within {CHECKPOINT_TARGET_M} m")
