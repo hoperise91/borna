@@ -134,6 +134,24 @@ def import_ins_trn139a(conn) -> dict:
     return m
 
 
+def import_aadt_end(conn) -> dict:
+    m = _require("aadt_end")
+    subprocess.run(
+        ["ogr2ogr", "-f", "PostgreSQL", f"PG:{PG_DSN}", str(DATA_RAW / "aadt_end" / m["files"][0]),
+         "MajorRoadSource", "-nln", "raw.end_major_roads", "-overwrite",
+         "-lco", "GEOMETRY_NAME=geom", "-lco", "FID=fid", "-nlt", "LINESTRING",
+         "-t_srs", f"EPSG:{CRS_STORAGE}"],
+        check=True,
+    )
+    conn.commit()
+    # annualTrafficFlow is vehicles per year; AADT = / 365.
+    conn.execute("""
+        ALTER TABLE raw.end_major_roads ADD COLUMN aadt integer;
+        UPDATE raw.end_major_roads SET aadt = round(annualtrafficflow / 365.0);
+    """)
+    return m
+
+
 SUMMARY_SQL = {
     "osm": """
         SELECT 'raw.osm_roads' AS "table", count(*) AS rows,
@@ -158,6 +176,10 @@ SUMMARY_SQL = {
         SELECT 'raw.ins_trn139a' AS "table", count(*) AS rows,
                count(DISTINCT county) AS counties FROM raw.ins_trn139a
     """,
+    "aadt_end": """
+        SELECT 'raw.end_major_roads' AS "table", count(*) AS rows,
+               count(DISTINCT roadnationalcode) AS roads FROM raw.end_major_roads
+    """,
 }
 
 SOURCES = {
@@ -165,6 +187,7 @@ SOURCES = {
     "overture": import_overture,
     "gisco": import_gisco,
     "ins_trn139a": import_ins_trn139a,
+    "aadt_end": import_aadt_end,
 }
 
 

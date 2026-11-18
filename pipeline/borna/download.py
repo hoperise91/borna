@@ -23,6 +23,10 @@ LEGIS = "https://legislatie.just.ro/Public/"
 HG540_DOC_ID = 23370  # HG 540/2000, base act; its consolidations and annexes are separate documents
 GISCO = "https://gisco-services.ec.europa.eu/distribution/v2/"
 TEMPO = "http://statistici.insse.ro:8077/tempo-ins/"
+DATA_GOV_RO = "https://data.gov.ro/api/3/action/"
+# Major roads outside agglomerations, from the EU Environmental Noise Directive (2002/49/CE)
+# reporting: carries annualTrafficFlow per section. Only roads above 3M vehicles/year.
+AADT_END_DATASET = "drumurile-principale-din-romania-din-afara-aglomerarilor-art-7-din-directiva-2002-49-ce"
 
 
 def _md5(path) -> str:
@@ -234,12 +238,38 @@ def download_ins_trn139a() -> None:
     print(f"ins_trn139a: saved {out.name} ({r.text.count(chr(10)) - 1:,} rows, updated {version})")
 
 
+def download_aadt_end() -> None:
+    pkg = requests.get(f"{DATA_GOV_RO}package_show", params={"id": AADT_END_DATASET},
+                       timeout=60).json()["result"]
+    res = next(r for r in pkg["resources"] if (r.get("format") or "").lower() == "gpkg")
+    version = (res.get("last_modified") or res.get("created") or pkg["metadata_modified"])[:10]
+    current = sources.read_manifest("aadt_end")
+    if sources.files_present(current) and current["version"] == version:
+        print(f"aadt_end: up to date ({version})")
+        return
+
+    out = sources.raw_dir("aadt_end") / "major_roads.gpkg"
+    print("aadt_end: fetching major-roads traffic flow GeoPackage…", flush=True)
+    _fetch_file(res["url"], out)
+    sources.write_manifest(
+        "aadt_end",
+        name="Drumurile principale din afara aglomerărilor (Directiva 2002/49/CE), trafic anual",
+        url=f"https://data.gov.ro/dataset/{AADT_END_DATASET}",
+        licence=pkg.get("license_id") or "CC-BY-4.0",
+        attribution=f"{pkg['organization']['title']}, data.gov.ro (CC BY 4.0)",
+        version=version,
+        files=[out.name],
+    )
+    print(f"aadt_end: saved {out.name} ({version})")
+
+
 SOURCES = {
     "osm": download_osm,
     "overture": download_overture,
     "hg540": download_hg540,
     "gisco": download_gisco,
     "ins_trn139a": download_ins_trn139a,
+    "aadt_end": download_aadt_end,
 }
 
 
