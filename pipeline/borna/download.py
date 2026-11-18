@@ -21,6 +21,8 @@ OVERTURE_STAC = "https://stac.overturemaps.org/catalog.json"
 OVERTURE_S3 = "s3://overturemaps-us-west-2/release/{release}/theme=transportation/type={type}/*"
 LEGIS = "https://legislatie.just.ro/Public/"
 HG540_DOC_ID = 23370  # HG 540/2000, base act; its consolidations and annexes are separate documents
+GISCO = "https://gisco-services.ec.europa.eu/distribution/v2/"
+TEMPO = "http://statistici.insse.ro:8077/tempo-ins/"
 
 
 def _md5(path) -> str:
@@ -156,7 +158,89 @@ def download_hg540() -> None:
     print(f"hg540: saved {out.name}")
 
 
-SOURCES = {"osm": download_osm, "overture": download_overture, "hg540": download_hg540}
+def _fetch_file(url: str, out) -> None:
+    tmp = out.with_suffix(out.suffix + ".part")
+    with requests.get(url, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        with open(tmp, "wb") as f:
+            f.writelines(r.iter_content(1 << 20))
+    tmp.rename(out)
+
+
+def download_gisco() -> None:
+    # Newest NUTS and LAU releases, 1:1M polygons in EPSG:4326 (whole EU; Romania is
+    # selected at import).
+    releases = {}
+    for theme in ("nuts", "lau"):
+        datasets = requests.get(f"{GISCO}{theme}/datasets.json", timeout=30).json()
+        releases[theme] = max(datasets).split("-")[1]  # 'nuts-2024' -> '2024'
+    version = f"NUTS {releases['nuts']}, LAU {releases['lau']}"
+    current = sources.read_manifest("gisco")
+    if sources.files_present(current) and current["version"] == version:
+        print(f"gisco: up to date ({version})")
+        return
+
+    files = []
+    for theme, prefix in (("nuts", "NUTS_RG_01M"), ("lau", "LAU_RG_01M")):
+        name = f"{prefix}_{releases[theme]}_4326.gpkg"
+        print(f"gisco: fetching {name}…", flush=True)
+        _fetch_file(f"{GISCO}{theme}/gpkg/{name}", sources.raw_dir("gisco") / name)
+        files.append(name)
+
+    sources.write_manifest(
+        "gisco",
+        name="Eurostat GISCO administrative units (NUTS, LAU)",
+        url=GISCO,
+        licence="Eurostat GISCO reuse policy (attribution required)",
+        attribution="© EuroGeographics for the administrative boundaries; Eurostat GISCO",
+        version=version,
+        files=files,
+    )
+    print(f"gisco: saved {', '.join(files)}")
+
+
+def download_ins_trn139a() -> None:
+    # INS Tempo Online TRN139A: public road length by category, surface and county, all years.
+    matrix = requests.get(f"{TEMPO}matrix/TRN139A", timeout=60).json()
+    version = matrix["ultimaActualizare"]  # last update, DD-MM-YYYY
+    current = sources.read_manifest("ins_trn139a")
+    if sources.files_present(current) and current["version"] == version:
+        print(f"ins_trn139a: up to date (updated {version})")
+        return
+
+    # The pivot endpoint takes one comma-separated list of option ids per dimension.
+    enc = ":".join(",".join(str(o["nomItemId"]) for o in d["options"]) for d in matrix["dimensionsMap"])
+    details = matrix["details"]
+    r = requests.post(f"{TEMPO}pivot", timeout=300, json={
+        "encQuery": enc, "language": "ro", "matCode": "TRN139A",
+        "matMaxDim": details["matMaxDim"], "matRegJ": details["matRegJ"],
+        "matUMSpec": details["matUMSpec"],
+    })
+    r.raise_for_status()
+    if r.text.count("\n") < 2:
+        raise RuntimeError("ins_trn139a: empty result from Tempo Online")
+    out = sources.raw_dir("ins_trn139a") / "TRN139A.csv"
+    out.write_text(r.text, encoding="utf-8")
+
+    sources.write_manifest(
+        "ins_trn139a",
+        name="INS Tempo Online TRN139A: lungimea drumurilor publice",
+        url=f"{TEMPO}matrix/TRN139A",
+        licence="INS Tempo Online, reuse with attribution",
+        attribution="Institutul Național de Statistică, TEMPO Online (TRN139A)",
+        version=version,
+        files=[out.name],
+    )
+    print(f"ins_trn139a: saved {out.name} ({r.text.count(chr(10)) - 1:,} rows, updated {version})")
+
+
+SOURCES = {
+    "osm": download_osm,
+    "overture": download_overture,
+    "hg540": download_hg540,
+    "gisco": download_gisco,
+    "ins_trn139a": download_ins_trn139a,
+}
 
 
 def main(argv: list[str]) -> int:

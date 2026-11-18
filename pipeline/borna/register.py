@@ -14,7 +14,6 @@ Outputs: data/out/hg540/register.csv, totals_check.csv, amendments.csv, and the 
 import csv
 import re
 import sys
-import unicodedata
 from dataclasses import asdict, dataclass, fields
 from decimal import Decimal
 
@@ -23,19 +22,8 @@ import psycopg
 
 from borna import sources
 from borna.config import DATA_OUT, DATA_RAW, PG_DSN
+from borna.romania import county_code
 
-# ISO 3166-2:RO codes, keyed by the county name without diacritics, upper case.
-COUNTIES = {
-    "ALBA": "AB", "ARAD": "AR", "ARGES": "AG", "BACAU": "BC", "BIHOR": "BH",
-    "BISTRITA-NASAUD": "BN", "BOTOSANI": "BT", "BRASOV": "BV", "BRAILA": "BR", "BUCURESTI": "B",
-    "BUZAU": "BZ", "CARAS-SEVERIN": "CS", "CALARASI": "CL", "CLUJ": "CJ", "CONSTANTA": "CT",
-    "COVASNA": "CV", "DAMBOVITA": "DB", "DOLJ": "DJ", "GALATI": "GL", "GIURGIU": "GR",
-    "GORJ": "GJ", "HARGHITA": "HR", "HUNEDOARA": "HD", "IALOMITA": "IL", "IASI": "IS",
-    "ILFOV": "IF", "MARAMURES": "MM", "MEHEDINTI": "MH", "MURES": "MS", "NEAMT": "NT",
-    "OLT": "OT", "PRAHOVA": "PH", "SATU MARE": "SM", "SALAJ": "SJ", "SIBIU": "SB",
-    "SUCEAVA": "SV", "TELEORMAN": "TR", "TIMIS": "TM", "TULCEA": "TL", "VASLUI": "VS",
-    "VALCEA": "VL", "VRANCEA": "VN",
-}
 LIST_BY_ANNEX = {"2": "dj", "3": "dc", "4": "dp"}
 
 # Unambiguous typos in road numbers as published: (annex, county, ref as printed) -> ref.
@@ -105,19 +93,6 @@ class Problem:
 
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip()
-
-
-def _fold(text: str) -> str:
-    """Upper case without diacritics: 'Bistrița-Năsăud' -> 'BISTRITA-NASAUD'."""
-    text = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in text if not unicodedata.combining(c)).upper().strip()
-
-
-def county_code(name: str) -> str:
-    key = re.sub(r"\s*-\s*", "-", _fold(name))
-    if key not in COUNTIES:
-        raise ValueError(f"unknown county {name!r}")
-    return COUNTIES[key]
 
 
 def parse_km(text: str) -> Decimal | None:

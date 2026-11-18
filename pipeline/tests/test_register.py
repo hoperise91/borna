@@ -4,7 +4,6 @@ import lxml.html
 import pytest
 
 from borna.register import (
-    county_code,
     expand_table,
     normalise_ref,
     parse_document,
@@ -12,6 +11,7 @@ from borna.register import (
     parse_length,
     parse_row,
 )
+from borna.romania import county_code
 
 
 @pytest.mark.parametrize("text,km", [

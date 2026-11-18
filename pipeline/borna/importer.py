@@ -4,6 +4,7 @@ Usage: python -m borna.importer [source ...]    (default: all)
 Every import replaces its raw.* tables.
 """
 
+import csv
 import subprocess
 import sys
 
@@ -12,6 +13,7 @@ import psycopg
 
 from borna import sources
 from borna.config import CRS_STORAGE, DATA_RAW, PG_DSN, ROOT
+from borna.romania import COUNTIES, county_code
 
 OSM_STYLE = ROOT / "pipeline" / "osm2pgsql" / "roads.lua"
 
@@ -72,6 +74,66 @@ def import_overture(conn) -> dict:
     return m
 
 
+def import_gisco(conn) -> dict:
+    m = _require("gisco")
+    for name, table in zip(m["files"], ("raw.gisco_nuts", "raw.gisco_lau")):
+        subprocess.run(
+            ["ogr2ogr", "-f", "PostgreSQL", f"PG:{PG_DSN}", str(DATA_RAW / "gisco" / name),
+             "-where", "CNTR_CODE = 'RO'", "-nln", table, "-overwrite", "-lco", "GEOMETRY_NAME=geom",
+             "-lco", "FID=fid", "-nlt", "PROMOTE_TO_MULTI", "-t_srs", f"EPSG:{CRS_STORAGE}"],
+            check=True,
+        )
+    conn.commit()
+    # County (ISO 3166-2:RO) on NUTS 3 by name, and on each LAU by the NUTS 3 unit containing it.
+    # LAU_ID is the SIRUTA code of the commune / town.
+    conn.execute("ALTER TABLE raw.gisco_nuts ADD COLUMN county text")
+    for nuts_id, name in conn.execute(
+            "SELECT nuts_id, name_latn FROM raw.gisco_nuts WHERE levl_code = 3").fetchall():
+        conn.execute("UPDATE raw.gisco_nuts SET county = %s WHERE nuts_id = %s",
+                     (county_code(name.removeprefix("Municipiul ")), nuts_id))
+    conn.execute("""
+        ALTER TABLE raw.gisco_lau ADD COLUMN county text, ADD COLUMN siruta text;
+        UPDATE raw.gisco_lau l SET siruta = split_part(l.gisco_id, '_', 2),
+               county = n.county
+        FROM raw.gisco_nuts n
+        WHERE n.levl_code = 3 AND ST_Within(ST_PointOnSurface(l.geom), n.geom);
+    """)
+    return m
+
+
+def import_ins_trn139a(conn) -> dict:
+    m = _require("ins_trn139a")
+    rows = []
+    with open(DATA_RAW / "ins_trn139a" / m["files"][0], encoding="utf-8") as f:
+        reader = csv.reader(f, skipinitialspace=True)
+        next(reader)  # header
+        for category, surface, area, year, _unit, value in reader:
+            area = area.strip()
+            county = None
+            if area == "Municipiul Bucuresti":
+                county = "B"
+            elif area.upper() in COUNTIES:
+                county = county_code(area)
+            km = value.strip()
+            rows.append((category.strip().lstrip("- ").strip(), surface.strip(), area, county,
+                         int(year.removeprefix("Anul ")), km if km.replace(".", "").isdigit() else None))
+    conn.execute("""
+        DROP TABLE IF EXISTS raw.ins_trn139a;
+        CREATE TABLE raw.ins_trn139a (
+            category text,   -- Total | Nationale | Judetene si comunale | Judetene | Comunale
+            surface  text,   -- Total | Modernizate | din modernizate: Autostrazi | … | De pamint
+            area     text,   -- as published (country, macro-region, region, county)
+            county   text,   -- ISO 3166-2:RO code when the area is a county, else NULL
+            year     integer,
+            km       numeric
+        )
+    """)
+    with conn.cursor().copy("COPY raw.ins_trn139a FROM STDIN") as copy:
+        for row in rows:
+            copy.write_row(row)
+    return m
+
+
 SUMMARY_SQL = {
     "osm": """
         SELECT 'raw.osm_roads' AS "table", count(*) AS rows,
@@ -86,9 +148,24 @@ SUMMARY_SQL = {
                count(*) FILTER (WHERE routes IS NOT NULL) AS with_ref FROM raw.overture_segment
         UNION ALL SELECT 'raw.overture_connector', count(*), NULL FROM raw.overture_connector
     """,
+    "gisco": """
+        SELECT 'raw.gisco_nuts' AS "table", count(*) AS rows,
+               count(*) FILTER (WHERE county IS NOT NULL) AS with_county FROM raw.gisco_nuts
+        UNION ALL SELECT 'raw.gisco_lau', count(*), count(*) FILTER (WHERE county IS NOT NULL)
+        FROM raw.gisco_lau
+    """,
+    "ins_trn139a": """
+        SELECT 'raw.ins_trn139a' AS "table", count(*) AS rows,
+               count(DISTINCT county) AS counties FROM raw.ins_trn139a
+    """,
 }
 
-SOURCES = {"osm": import_osm, "overture": import_overture}
+SOURCES = {
+    "osm": import_osm,
+    "overture": import_overture,
+    "gisco": import_gisco,
+    "ins_trn139a": import_ins_trn139a,
+}
 
 
 def main(argv: list[str]) -> int:
@@ -105,7 +182,7 @@ def main(argv: list[str]) -> int:
             conn.commit()
             print(f"{name}: registered in borna.source (version {manifest['version']})")
             for row in conn.execute(SUMMARY_SQL[name]).fetchall():
-                print(f"  {row[0]:<24} {row[1]:>10,}  {'' if row[2] is None else f'({row[2]:,} ref/milestone)'}")
+                print(f"  {row[0]:<24} {row[1]:>10,}  {'' if row[2] is None else f'({row[2]:,})'}")
     return 0
 
 
