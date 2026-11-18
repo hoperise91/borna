@@ -17,7 +17,7 @@ RUN  := cd pipeline && ../$(PY) -m
 SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs tiles web-dev test
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes tiles web-dev test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -62,6 +62,9 @@ register: setup db-up ## Phase 1.3: parse HG 540/2000 annexes into borna.road
 
 lrs: setup db-up ## Phase 2: match register to geometry, calibrate km
 	$(RUN) borna.lrs $(ARGS)
+
+attributes: setup db-up ## Phase 2: surface, lanes, speed, bridges, AADT onto road km ranges
+	$(RUN) borna.attributes
 
 tiles: setup db-up ## Phase 3: export PMTiles + per-county downloads to data/out/
 	$(RUN) borna.tiles
