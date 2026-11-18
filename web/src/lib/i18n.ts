@@ -101,6 +101,17 @@ const ro = {
   bm_topo: "Relief",
   bm_satellite: "Satelit",
   bm_none: "Fără hartă",
+  show_labels: "Numerele drumurilor pe hartă",
+  loading_map: "Se încarcă harta…",
+  layer_width: "Lățime",
+  layer_owner: "Administrator",
+  administrator: "Administrator",
+  owner_state: "Stat (CNAIR)",
+  owner_county: "Județ (consiliul județean)",
+  owner_commune: "Comună (consiliul local)",
+  owner_private: "Privat",
+  owner_note: "După categoria drumului, conform OG 43/1997. Tronsoanele urbane ale drumurilor naționale pot fi administrate de municipii.",
+  width_note: "Linie groasă: lățime măsurată (OSM, rar). Linie subțire: estimată din numărul de benzi × 3,5 m (A, DN) sau 3,0 m (DJ, DC). La drumurile cu două căi, per sens.",
 } as const;
 
 export type Strings = Record<keyof typeof ro, string>;
@@ -199,6 +210,17 @@ const en: Strings = {
   bm_topo: "Terrain",
   bm_satellite: "Satellite",
   bm_none: "No map",
+  show_labels: "Road numbers on the map",
+  loading_map: "Loading map…",
+  layer_width: "Width",
+  layer_owner: "Administrator",
+  administrator: "Administrator",
+  owner_state: "State (CNAIR)",
+  owner_county: "County (county council)",
+  owner_commune: "Commune (local council)",
+  owner_private: "Private",
+  owner_note: "By road category, per OG 43/1997. Urban sections of national roads may be run by the municipality.",
+  width_note: "Thick line: measured width (OSM, rare). Thin line: estimated from lanes × 3.5 m (A, DN) or 3.0 m (DJ, DC). Dual carriageways: per direction.",
 };
 
 export const strings: Record<Lang, Strings> = { ro, en };

@@ -1,7 +1,7 @@
 """Phase 3: export the network for the static website (web/public/data/).
 
   borna.pmtiles        vector tiles: roads (by category, km quality) and attribute layers
-                       (surface class, maxspeed, aadt) for the map
+                       (surface class, maxspeed, aadt, width in m, lanes) for the map
   roads/<key>.json     one file per road: official data, calibrated segments for the km lookup,
                        attributes along the km, per-county km for national roads.
                        key: 'DN1' for national roads, 'CV-DJ103' for county roads.
@@ -36,6 +36,12 @@ SURFACE_CLASS_SQL = """
          WHEN value IN ('gravel', 'fine_gravel', 'compacted', 'pebblestone', 'rock') THEN 'gravel'
          WHEN value IN ('dirt', 'ground', 'earth', 'grass', 'mud', 'sand', 'soil') THEN 'earth'
          WHEN value = 'unpaved' THEN 'unpaved' ELSE 'other' END"""
+
+# OSM width as tagged ('7', '7 m', '6,5') -> metres; implausible road widths dropped.
+WIDTH_M_SQL = """
+    CASE WHEN replace(substring(value from '^[0-9]+(?:[.,][0-9]+)?'), ',', '.')::numeric
+              BETWEEN 2.5 AND 40
+         THEN replace(substring(value from '^[0-9]+(?:[.,][0-9]+)?'), ',', '.')::numeric END"""
 
 ROAD_KEY_SQL = "CASE WHEN r.county IS NULL THEN r.ref ELSE r.county || '-' || r.ref END"
 
@@ -75,7 +81,9 @@ def export_tiles(conn, tmp: Path) -> None:
         FROM borna.road_segment s JOIN borna.road r USING (road_id)""")
     for layer, typ, value in (("surface", "surface", SURFACE_CLASS_SQL),
                               ("maxspeed", "maxspeed", "value"),
-                              ("aadt", "aadt", "value::int")):
+                              ("aadt", "aadt", "value::int"),
+                              ("width", "width", WIDTH_M_SQL),
+                              ("lanes", "lanes", "nullif(substring(value from '^[0-9]+'), '')::int")):
         layers[layer] = _geojsonseq(conn, tmp / f"{layer}.geojsonl", f"""
             SELECT json_build_object(
                 'type', 'Feature',
@@ -83,7 +91,7 @@ def export_tiles(conn, tmp: Path) -> None:
                 'properties', json_build_object('v', {value}, 't', x.category),
                 'geometry', ST_AsGeoJSON(x.geom, {COORD_DECIMALS})::json)
             FROM ({EVENT_GEOM_SQL}) x
-            WHERE NOT ST_IsEmpty(x.geom)""", (typ,))
+            WHERE NOT ST_IsEmpty(x.geom) AND {value} IS NOT NULL""", (typ,))
     print("tiles: features " + ", ".join(f"{k} {v:,}" for k, v in layers.items()), flush=True)
     out = WEB_DATA / "borna.pmtiles"
     subprocess.run(
@@ -118,6 +126,10 @@ def export_roads(conn) -> int:
         attrs.setdefault(road_id, {}).setdefault(typ, []).append(
             [float(f), float(t), value, source])
 
+    owners = {(ref, county): owner for ref, county, owner in conn.execute("""
+        SELECT ref, county, min(owner) FROM borna.register_entry
+        WHERE owner IS NOT NULL GROUP BY 1, 2""")}
+
     counties: dict[str, list] = {}
     for ref, county, f, t, length in conn.execute("""
             SELECT ref, county, km_from, km_to, length_km FROM borna.register_entry
@@ -141,6 +153,7 @@ def export_roads(conn) -> int:
             "key": key, "ref": ref, "county": county, "category": category, "route": route,
             "km_from": num(km_from), "km_to": num(km_to), "length_official": num(length),
             "legal_source": legal,
+            "owner": owners.get((ref, county)),
             "lrs": {"status": status, "path_km": num(path_km), "orientation": orientation,
                     "control_points": (n_ctrl or 0) + (n_ms or 0)},
             "bbox": [float(v) for v in bbox] if bbox else None,

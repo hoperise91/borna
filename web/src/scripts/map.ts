@@ -15,6 +15,7 @@ import {
 import { liveStrip } from "../lib/strip";
 
 const OFM = "https://tiles.openfreemap.org/styles/";
+const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"; // for road labels on raster maps
 const ROAD_TYPES = ["A", "DN", "V", "DJ", "DC", "DP"];
 
 // Background maps: free, no keys. Raster ones get a minimal style.
@@ -28,7 +29,7 @@ const BASEMAPS: { id: string; style: string | (() => maplibregl.StyleSpecificati
     "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
     "Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0", 14) },
   { id: "none", style: () => ({
-    version: 8, sources: {},
+    version: 8, glyphs: GLYPHS, sources: {},
     layers: [{ id: "bg", type: "background", paint: { "background-color":
       getComputedStyle(document.documentElement).getPropertyValue("--paper").trim() || "#f6f3ec" } }],
   }) },
@@ -38,6 +39,7 @@ function raster(url: string, attribution: string, maxzoom: number, subdomains?: 
   const tiles = subdomains ? subdomains.map((d) => url.replace("{s}", d)) : [url];
   return {
     version: 8,
+    glyphs: GLYPHS,
     sources: { bg: { type: "raster", tiles, tileSize: 256, maxzoom, attribution } },
     layers: [{ id: "bg", type: "raster", source: "bg" }],
   };
@@ -48,7 +50,15 @@ function basemapStyle(id: string): string | maplibregl.StyleSpecification {
   return typeof b.style === "string" ? b.style : b.style();
 }
 const RO_BOUNDS: [[number, number], [number, number]] = [[20.2, 43.6], [29.75, 48.3]];
-type Mode = "category" | "surface" | "maxspeed" | "aadt" | "quality";
+type Mode = "category" | "surface" | "maxspeed" | "aadt" | "width" | "owner";
+
+// Administrator by road category (OG 43/1997): national roads -> the state (CNAIR), county
+// roads -> county council, communal roads -> local council, DP -> private owner.
+export const OWNER_OF: Record<string, string> = { A: "state", DX: "state", DN: "state", V: "state", DJ: "county", DC: "commune", DP: "private" };
+export const OWNER_COLOR: Record<string, string> = { state: "#7b2cbf", county: "#f28c28", commune: "#2a9d8f", private: "#6b6b6b" };
+// Carriageway width classes (m), NVDB-style; estimated width = lanes x a standard lane width.
+const WIDTH_STEPS: [number, string][] = [[0, "#d7191c"], [5, "#fdae61"], [6, "#fee08b"], [7, "#a6d96a"], [9, "#2c7bb6"], [12, "#253494"]];
+const LANE_WIDTH: ExpressionSpecification = ["match", ["get", "t"], ["A", "DX", "DN", "V"], 3.5, 3.0];
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const shield = (ref: string, cat: string, lg = false) =>
@@ -126,8 +136,21 @@ export function initMap(root: HTMLElement) {
     "match", ["get", "q"], ...Object.entries(QUALITY_COLOR).flat(), "#999",
   ] as unknown as ExpressionSpecification;
   const typeFilter = (): ExpressionSpecification => ["in", ["get", "t"], ["literal", [...visibleCats]]];
+  const ownerColor = ["match", ["get", "t"],
+    ["A", "DX", "DN", "V"], OWNER_COLOR.state, "DJ", OWNER_COLOR.county, "DC", OWNER_COLOR.commune,
+    OWNER_COLOR.private] as unknown as ExpressionSpecification;
+  const widthColor = (metres: ExpressionSpecification): ExpressionSpecification =>
+    ["step", metres, WIDTH_STEPS[0][1], ...WIDTH_STEPS.slice(1).flat()] as unknown as ExpressionSpecification;
+  // Labels by zoom: motorways first, then national, county, communal roads.
+  const labelFilter = (): ExpressionSpecification => {
+    const tf = typeFilter();
+    const only = (cats: string[]): ExpressionSpecification => ["all", tf, ["in", ["get", "t"], ["literal", cats]]];
+    return ["step", ["zoom"], only(["A", "DX"]), 6, only(["A", "DX", "DN"]), 8,
+      only(["A", "DX", "DN", "V", "DJ"]), 11, tf] as unknown as ExpressionSpecification;
+  };
+  let showLabels = stored("borna.labels") !== "0";
   let hoverKey = "";
-  const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt"];
+  const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt", "lanes", "width"];
 
   // Bornă's sources and layers. Runs on every style load: switching the basemap replaces the
   // style, so the overlays (and the current mode, road types and selection) are added again.
@@ -167,12 +190,49 @@ export function initMap(root: HTMLElement) {
           5, ["interpolate", ["linear"], ["get", "v"], 3000, 1.5, 20000, 3.5, 75000, 8],
           12, ["interpolate", ["linear"], ["get", "v"], 3000, 4, 20000, 8, 75000, 16]],
       } }, before);
+    map.addLayer({ id: "lanes", type: "line", source: "borna", "source-layer": "lanes", layout: { ...line, visibility: "none" },
+      paint: { "line-width": width(1.1), "line-opacity": 0.75,
+        "line-color": widthColor(["*", ["to-number", ["get", "v"], 0], LANE_WIDTH]) } }, before);
+    map.addLayer({ id: "width", type: "line", source: "borna", "source-layer": "width", layout: { ...line, visibility: "none" },
+      paint: { "line-width": width(1.5, 1), "line-color": widthColor(["to-number", ["get", "v"], 0]) } }, before);
     map.addLayer({ id: "sel-line", type: "line", source: "sel", layout: line,
       paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 5, 3, 14, 8] } }, before);
+    for (const c of Object.keys(CATEGORY_COLOR)) {
+      if (!map.hasImage(`shield-${c}`)) map.addImage(`shield-${c}`, shieldImage(CATEGORY_COLOR[c]),
+        { pixelRatio: 2, stretchX: [[10, 38]], stretchY: [[10, 30]], content: [6, 5, 42, 35] });
+    }
+    map.addLayer({ id: "road-labels", type: "symbol", source: "borna", "source-layer": "roads",
+      filter: labelFilter(),
+      layout: {
+        visibility: showLabels ? "visible" : "none",
+        "symbol-placement": "line", "symbol-spacing": 320,
+        "symbol-sort-key": ["match", ["get", "t"], ["A", "DX"], 0, "DN", 1, "V", 2, "DJ", 3, "DC", 4, 5],
+        "text-field": ["get", "r"], "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 6, 10, 12, 12],
+        "text-rotation-alignment": "viewport", "icon-rotation-alignment": "viewport",
+        "icon-image": ["concat", "shield-", ["get", "t"]],
+        "icon-text-fit": "both", "icon-text-fit-padding": [1, 4, 1, 4], "text-padding": 6,
+      },
+      paint: { "text-color": "#ffffff" } });
     applyMode();
     applyRoadTypes();
   }
   map.on("style.load", addOverlays);
+
+  // Rounded route-shield background for labels, stretchable around the text.
+  function shieldImage(color: string): ImageData {
+    const c = document.createElement("canvas");
+    c.width = 48; c.height = 40;
+    const g = c.getContext("2d")!;
+    g.fillStyle = color;
+    g.strokeStyle = "rgba(255,255,255,.95)";
+    g.lineWidth = 3;
+    g.beginPath();
+    g.roundRect(2, 2, 44, 36, 8);
+    g.fill();
+    g.stroke();
+    return g.getImageData(0, 0, 48, 40);
+  }
 
   // Satellite and dark maps (and "no map" on a dark page) need dark road casings.
   function darkBackground() {
@@ -240,7 +300,9 @@ export function initMap(root: HTMLElement) {
       <div class="rt-quick">
         <button type="button" class="chip" data-quick="all">${esc(s.show_all)}</button>
         <button type="button" class="chip" data-quick="main">${esc(s.only_main)}</button>
-      </div>`;
+      </div>
+      <label class="rt labels-opt"><input type="checkbox" data-labels ${showLabels ? "checked" : ""}/>
+        <span class="shield" data-cat="DN">DN1</span><span>${esc(s.show_labels)}</span></label>`;
   }
   renderPanel();
   panel.addEventListener("click", (e) => {
@@ -256,6 +318,12 @@ export function initMap(root: HTMLElement) {
   });
   panel.addEventListener("change", (e) => {
     const box = e.target as HTMLInputElement;
+    if (box.hasAttribute("data-labels")) {
+      showLabels = box.checked;
+      store("borna.labels", showLabels ? "1" : "0");
+      if (map.getLayer("road-labels")) map.setLayoutProperty("road-labels", "visibility", showLabels ? "visible" : "none");
+      return;
+    }
     if (!box.dataset.cat) return;
     if (box.checked) visibleCats.add(box.dataset.cat); else visibleCats.delete(box.dataset.cat);
     applyRoadTypes();
@@ -275,13 +343,23 @@ export function initMap(root: HTMLElement) {
     basemap = id;
     store("borna.basemap", id);
     renderPanel();
+    loading(true);
     map.setStyle(basemapStyle(id)); // style.load -> addOverlays()
   }
+
+  // "Loading map…" until the map has drawn everything (some basemap servers are slow).
+  const loadingEl = root.querySelector<HTMLElement>("#map-loading")!;
+  function loading(on: boolean) {
+    loadingEl.classList.toggle("done", !on);
+    if (on) map.once("idle", () => loading(false));
+  }
+  loading(true);
 
   function applyRoadTypes() {
     store("borna.cats", JSON.stringify([...visibleCats]));
     if (!map.getLayer("roads")) return;
     for (const id of ROAD_LAYERS) map.setFilter(id, typeFilter());
+    map.setFilter("road-labels", labelFilter());
     applyMode();
   }
 
@@ -305,8 +383,9 @@ export function initMap(root: HTMLElement) {
   function applyMode() {
     if (!map.getLayer("roads")) return;
     const neutral = darkBackground() ? "#9a958a" : "#cdc6b8";
-    map.setPaintProperty("roads", "line-color", mode === "category" ? catColor : mode === "quality" ? qualityColor : neutral);
-    for (const id of ["surface", "maxspeed", "aadt"]) map.setLayoutProperty(id, "visibility", id === mode ? "visible" : "none");
+    map.setPaintProperty("roads", "line-color", mode === "category" ? catColor : mode === "owner" ? ownerColor : neutral);
+    const shown: Record<string, Mode> = { surface: "surface", maxspeed: "maxspeed", aadt: "aadt", lanes: "width", width: "width" };
+    for (const [id, m] of Object.entries(shown)) map.setLayoutProperty(id, "visibility", m === mode ? "visible" : "none");
     const row = (color: string, label: string, h = 5) =>
       `<div class="row"><span class="sw" style="background:${color};height:${h}px"></span>${esc(label)}</div>`;
     let html = "";
@@ -318,8 +397,11 @@ export function initMap(root: HTMLElement) {
       .map(([c, l]) => row(c, `${l} km/h`)).join("");
     if (mode === "aadt") html = [["#cbc9e2", "< 10 000"], ["#9e9ac8", "10–20 000"], ["#6a51a3", "20–40 000"], ["#3f007d", "> 40 000"]]
       .map(([c, l], i) => row(c, l, 3 + i * 2)).join("") + `<div class="small muted" style="max-width:190px;margin-top:4px">${esc(s.aadt_note)}</div>`;
-    if (mode === "quality") html = (["calibrated", "interpolated", "estimated"] as Quality[])
-      .map((q) => row(QUALITY_COLOR[q], `${qual(q)}: ${T[`q_${q}_long`]}`)).join("");
+    if (mode === "owner") html = Object.entries(OWNER_COLOR).map(([k, c]) => row(c, T[`owner_${k}`])).join("")
+      + `<div class="small muted" style="max-width:210px;margin-top:4px">${esc(s.owner_note)}</div>`;
+    if (mode === "width") html = WIDTH_STEPS.map(([m, c], i) => row(c,
+      i === 0 ? `< ${WIDTH_STEPS[1][0]} m` : i === WIDTH_STEPS.length - 1 ? `≥ ${m} m` : `${m}–${WIDTH_STEPS[i + 1][0]} m`)).join("")
+      + `<div class="small muted" style="max-width:220px;margin-top:4px">${esc(s.width_note)}</div>`;
     legend.innerHTML = html;
   }
 
@@ -532,6 +614,7 @@ export function initMap(root: HTMLElement) {
         ${onMap ? `<dt>${esc(s.km_quality)}</dt><dd>${Math.round(shares.calibrated * 100)}% ${esc(qual("calibrated"))}
           <div class="qbar">${(["calibrated", "interpolated", "estimated"] as Quality[]).map((q) =>
             `<span style="width:${shares[q] * 100}%;background:${QUALITY_COLOR[q]}"></span>`).join("")}</div></dd>` : ""}
+        <dt>${esc(s.administrator)}</dt><dd>${esc((s as Record<string, string>)[`owner_${OWNER_OF[road.category] ?? "private"}`])}${road.owner ? ` · ${esc(road.owner)}` : ""}</dd>
         ${through.length ? `<dt>${esc(s.through)}</dt><dd>${through.map((c) => esc(countyName(c))).join(", ")}</dd>` : ""}
         ${aadt.length ? `<dt>${esc(s.aadt)}</dt><dd>${Math.min(...aadt).toLocaleString()} – ${Math.max(...aadt).toLocaleString()} ${esc(s.vehicles_day)}</dd>` : ""}
       </dl>

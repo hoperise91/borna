@@ -19,6 +19,7 @@ export interface Road {
   km_to: number | null;
   length_official: number | null;
   legal_source: string | null;
+  owner?: string | null;
   lrs: { status: string | null; path_km: number | null; control_points: number };
   bbox: [number, number, number, number] | null;
   segments: Segment[];

@@ -8,7 +8,7 @@ const s = strings[lang];
 const examples = ["DN1 km 27+400", "DN12", "DJ103", "Covasna"];
 const layers = [
   ["category", s.layer_category], ["surface", s.layer_surface], ["maxspeed", s.layer_maxspeed],
-  ["aadt", s.layer_aadt], ["quality", s.layer_quality],
+  ["aadt", s.layer_aadt], ["width", s.layer_width], ["owner", s.layer_owner],
 ];
 ---
 <Base lang={lang} page="map" fullscreen>
@@ -50,6 +50,7 @@ const layers = [
       </div>
       <div class="legend" id="legend"></div>
       <div class="layers-panel" id="layers-panel" hidden></div>
+      <div class="map-loading" id="map-loading" role="status"><span class="spinner"></span>{s.loading_map}</div>
     </div>
   </main>
 </Base>
@@ -196,6 +197,19 @@ const layers = [
   .rt .shield { min-width: 36px; height: 20px; font-size: 13px; }
   .rt input:not(:checked) ~ * { opacity: .45; }
   .rt-quick { display: flex; gap: 6px; margin-top: 12px; }
+  .map-loading {
+    position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
+    font-size: 13px; color: var(--ink-2); transition: opacity .25s; pointer-events: none;
+  }
+  .map-loading.done { opacity: 0; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2);
+    border-top-color: var(--accent); animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .labels-opt { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; border-radius: 0; }
   .legend .sw { width: 22px; height: 5px; border-radius: 3px; flex: none; }
   .map-wrap .maplibregl-popup-content {
     font-family: var(--font-body); border-radius: 9px; padding: 8px 11px;
