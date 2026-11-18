@@ -29,7 +29,7 @@ Romania's open road database: an NVDB-style portal built from public data. The p
 - `make qa` (after lrs + attributes) writes `data/out/qa/`: county lengths (HG 540 vs INS vs OSM), county surface shares (INS vs OSM tags; INS modernised + light pavement = paved), exact attribute coverage, gaps by county, OSM refs not in the register, and a README.md summary meant for sharing.
 - Schema changes: edit `pipeline/sql/00_schema.sql`, then `make db-reset` (and re-run `make import register`) or apply the matching ALTER by hand.
 - `data/`: git-ignored (`raw/` downloads, `interim/`, `out/` exports). Never commit data.
-- `web/`: Astro site (Phase 3).
+- `web/`: Astro static site. `make tiles` exports `web/public/data/` (git-ignored): `borna.pmtiles`, `roads/<key>.json` (key `DN1` or `CV-DJ121`), `index.json`, `sources.json`, `accuracy.json`, `downloads/`. Pages: map `/` + `/en/` (search, county → road browsing, click/hover a road, km lookup, layer modes), road page `/drum/?r=KEY` + `/en/road/`, `/date/`, `/despre/`. One road page reads its JSON client-side: Cloudflare Pages allows 20k files per deploy. Data URL: `PUBLIC_DATA_URL` (default `/data`). UI strings in `web/src/lib/i18n.ts` (RO + EN, keep both in sync). Design: simple, calm, route-shield colours (A green, DN red, DJ blue, DC ochre); user wants simple and easy over clever.
 - `tests/lrs_checkpoints.csv`: the km-lookup quality gate (road, km, lat, lon, note). Target ±50 m. Note where each km value comes from (local knowledge, HG 540, milestone photo); approximate ones say so.
 
 ## Commands

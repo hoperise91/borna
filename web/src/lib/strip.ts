@@ -1,0 +1,115 @@
+// Strip diagram: the road as a horizontal km ruler with one band per property.
+import type { Strings } from "./i18n";
+import {
+  type Road, type Event, QUALITY_COLOR, SURFACE_COLOR, aadtColor, formatKm, speedColor,
+  surfaceClass,
+} from "./roads";
+
+interface Band {
+  label: string;
+  items: { f: number; t: number; color: string; text: string }[];
+  ticks?: boolean; // narrow marks (bridges, tunnels)
+}
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function niceStep(span: number, target: number): number {
+  const raw = span / target;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw) ?? raw;
+}
+
+export function bands(road: Road, s: Strings): Band[] {
+  const a = road.attributes;
+  const ev = (type: string): Event[] => a[type] ?? [];
+  const out: Band[] = [];
+  const surfaceLabel = (c: string) => (s as Record<string, string>)[`s_${c}`] ?? c;
+  out.push({
+    label: s.surface,
+    items: ev("surface").map(([f, t, v]) => ({
+      f, t, color: SURFACE_COLOR[surfaceClass(v)], text: `${surfaceLabel(surfaceClass(v))} (${v})`,
+    })),
+  });
+  out.push({
+    label: s.lanes,
+    items: ev("lanes").map(([f, t, v]) => {
+      const n = parseInt(v, 10);
+      const shade = ["#d8d3c8", "#b8b0a0", "#8c826e", "#5f5646", "#3b342a"][Math.min(Math.max(n, 1), 5) - 1];
+      return { f, t, color: shade ?? "#a3a3a3", text: `${v} ${s.lanes.toLowerCase()}` };
+    }),
+  });
+  out.push({
+    label: s.maxspeed,
+    items: ev("maxspeed").map(([f, t, v]) => ({ f, t, color: speedColor(v), text: `${v} km/h` })),
+  });
+  if (ev("aadt").length) {
+    out.push({
+      label: s.aadt,
+      items: ev("aadt").map(([f, t, v]) => ({
+        f, t, color: aadtColor(v), text: `${Number(v).toLocaleString()} ${s.vehicles_day}`,
+      })),
+    });
+  }
+  const structures = [
+    ...ev("bridge").map(([f, t]) => ({ f, t, color: "#1d5fbf", text: s.bridge })),
+    ...ev("tunnel").map(([f, t]) => ({ f, t, color: "#2b2b2b", text: s.tunnel })),
+  ];
+  if (structures.length) out.push({ label: `${s.bridge} / ${s.tunnel}`, items: structures, ticks: true });
+  out.push({
+    label: s.km_quality,
+    items: road.segments.map(([f, t, q]) => ({
+      f, t, color: QUALITY_COLOR[q], text: (s as Record<string, string>)[`q_${q}`] ?? q,
+    })),
+  });
+  return out;
+}
+
+/** Render the diagram into `el`. `compact` drops the label column and shows fewer bands. */
+export function renderStrip(el: HTMLElement, road: Road, s: Strings, opts: { compact?: boolean } = {}) {
+  const from = road.segments.length ? Math.min(...road.segments.map((x) => x[0])) : road.km_from ?? 0;
+  const to = road.segments.length ? Math.max(...road.segments.map((x) => x[1])) : road.km_to ?? 1;
+  const span = Math.max(to - from, 0.001);
+  let list = bands(road, s);
+  if (opts.compact) list = list.filter((b) => [s.surface, s.maxspeed, s.lanes].includes(b.label));
+
+  const labelW = opts.compact ? 0 : 128;
+  const width = Math.max(el.clientWidth || 600, 280);
+  const plot = width - labelW - 8;
+  const rowH = opts.compact ? 14 : 22;
+  const gap = opts.compact ? 10 : 12;
+  const top = 26;
+  const height = top + list.length * (rowH + gap) + 4;
+  const x = (km: number) => labelW + ((km - from) / span) * plot;
+
+  const step = niceStep(span, opts.compact ? 4 : Math.max(4, Math.round(plot / 90)));
+  let ruler = "";
+  for (let k = Math.ceil(from / step) * step; k <= to + 1e-9; k += step) {
+    ruler += `<line x1="${x(k)}" x2="${x(k)}" y1="14" y2="${height}" class="grid"/>`
+      + `<text x="${x(k)}" y="10" class="tick">${step < 1 ? formatKm(k) : Math.round(k)}</text>`;
+  }
+
+  let rows = "";
+  list.forEach((b, i) => {
+    const y = top + i * (rowH + gap);
+    if (!opts.compact) rows += `<text x="0" y="${y + rowH / 2 + 4}" class="label">${esc(b.label)}</text>`;
+    rows += `<rect x="${labelW}" y="${y}" width="${plot}" height="${rowH}" class="track"/>`;
+    for (const it of b.items) {
+      const x0 = x(Math.max(it.f, from));
+      const w = Math.max(x(Math.min(it.t, to)) - x0, b.ticks ? 2 : 0.6);
+      const tip = `${it.text} · km ${formatKm(it.f)} – ${formatKm(it.t)}`;
+      rows += `<rect x="${x0}" y="${y}" width="${w}" height="${rowH}" fill="${it.color}"`
+        + ` data-tip="${esc(tip)}"><title>${esc(tip)}</title></rect>`;
+    }
+  });
+
+  el.innerHTML = `<svg class="strip" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"
+    role="img" aria-label="${esc(s.strip_title)}">${ruler}${rows}</svg>`;
+}
+
+/** Re-render on resize; returns a cleanup function. */
+export function liveStrip(el: HTMLElement, road: Road, s: Strings, opts: { compact?: boolean } = {}) {
+  renderStrip(el, road, s, opts);
+  const ro = new ResizeObserver(() => renderStrip(el, road, s, opts));
+  ro.observe(el);
+  return () => ro.disconnect();
+}

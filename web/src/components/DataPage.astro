@@ -1,0 +1,65 @@
+---
+import Base from "../layouts/Base.astro";
+import { strings, type Lang } from "../lib/i18n";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const s = strings[lang];
+const ro = lang === "ro";
+const files = [
+  ["hg540_register.csv", ro ? "Registrul HG 540/2000: toate drumurile, rând cu rând, cu pozițiile km oficiale" : "HG 540/2000 register: every road, row by row, with official km positions", ro ? "domeniu public (act normativ)" : "public domain (official act)"],
+  ["qa_county_lengths.csv", ro ? "Lungimi pe județe: registru vs INS vs OpenStreetMap" : "Lengths per county: register vs INS vs OpenStreetMap", "ODbL"],
+  ["qa_county_surface.csv", ro ? "Îmbrăcămintea pe județe: INS vs OpenStreetMap" : "Surface per county: INS vs OpenStreetMap", "ODbL"],
+  ["qa_gaps_by_county.csv", ro ? "Drumuri din registru lipsă sau incomplete în OpenStreetMap" : "Register roads missing or incomplete in OpenStreetMap", "ODbL"],
+  ["qa_osm_refs_not_in_register.csv", ro ? "Numere de drum din OpenStreetMap care nu apar în registru" : "OpenStreetMap road numbers missing from the register", "ODbL"],
+];
+---
+<Base lang={lang} page="data" title={s.nav_data}>
+  <main class="page">
+    <h1>{s.nav_data}</h1>
+    <p class="muted">
+      {ro
+        ? "Tot ce afișează Bornă se poate descărca. Fiecare fișier își păstrează licența sursei."
+        : "Everything Bornă shows can be downloaded. Each file keeps its source's licence."}
+    </p>
+
+    <h2>{ro ? "Descărcări" : "Downloads"}</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>{ro ? "Fișier" : "File"}</th><th>{ro ? "Conținut" : "Contents"}</th><th>{s.licence}</th></tr></thead>
+        <tbody>
+          {files.map(([f, d, l]) => (
+            <tr><td><a class="mono" href={`/data/downloads/${f}`} download data-file>{f}</a></td><td>{d}</td><td class="small">{l}</td></tr>
+          ))}
+          <tr><td><a class="mono" href="/data/borna.pmtiles" download data-file>borna.pmtiles</a></td>
+            <td>{ro ? "Rețeaua cu kilometraj, ca plăci vectoriale (PMTiles)" : "The km-referenced network as vector tiles (PMTiles)"}</td><td class="small">ODbL</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>{ro ? "Date pentru programatori" : "Data for developers"}</h2>
+    <p>
+      {ro
+        ? "Fiecare drum are un fișier JSON static, cu segmentele calibrate (pentru căutarea km), caracteristicile de-a lungul km și sursa fiecărei valori:"
+        : "Every road has a static JSON file with its calibrated segments (for km lookup), its properties along the km and the source of every value:"}
+    </p>
+    <div class="table-wrap"><table><tbody>
+      <tr><td class="mono">/data/index.json</td><td>{ro ? "toate drumurile: cheie, număr, județ, categorie, traseu, limite" : "every road: key, number, county, category, route, bounds"}</td></tr>
+      <tr><td class="mono">/data/roads/DN1.json</td><td>{ro ? "un drum național" : "a national road"}</td></tr>
+      <tr><td class="mono">/data/roads/CV-DJ121.json</td><td>{ro ? "un drum județean sau comunal: cod județ + număr" : "a county or communal road: county code + number"}</td></tr>
+      <tr><td class="mono">/data/sources.json</td><td>{ro ? "sursele, cu licență și dată" : "the sources, with licence and date"}</td></tr>
+    </tbody></table></div>
+    <p class="small muted">
+      {ro
+        ? "Conversia km ↔ coordonate: în fiecare segment, km variază liniar de-a lungul lungimii segmentului."
+        : "km ↔ coordinates: within each segment, km is linear along the segment's length."}
+    </p>
+  </main>
+</Base>
+
+<script>
+  import { DATA_URL } from "../lib/roads";
+  document.querySelectorAll<HTMLAnchorElement>("a[data-file]").forEach((a) => {
+    a.href = a.getAttribute("href")!.replace(/^\/data/, DATA_URL);
+  });
+</script>

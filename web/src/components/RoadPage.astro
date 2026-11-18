@@ -1,0 +1,42 @@
+---
+import Base from "../layouts/Base.astro";
+import { routes, strings, type Lang } from "../lib/i18n";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const s = strings[lang];
+---
+<Base lang={lang} page="road" title={s.road_page}>
+  <main class="page road-page" id="road" data-lang={lang} data-strings={JSON.stringify(s)} data-map-url={routes[lang].map}>
+    <p class="muted" id="road-loading">{s.loading}</p>
+  </main>
+</Base>
+
+<script>
+  import { initRoadPage } from "../scripts/road-page";
+  initRoadPage(document.getElementById("road")!);
+</script>
+
+<style is:global>
+  .road-page { max-width: 1120px; }
+  .rp-head { display: flex; gap: 16px; align-items: center; margin: 4px 0 6px; }
+  .rp-head h1 { font-size: 34px; margin: 0; }
+  .rp-route { font-size: 17px; color: var(--ink-2); margin: 6px 0 22px; max-width: 80ch; }
+  .rp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+  .rp-map { height: 340px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
+  .rp-facts { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; font-size: 14.5px; }
+  .rp-facts dt { color: var(--ink-3); }
+  .rp-facts dd { margin: 0; }
+  .rp-goto { display: flex; gap: 8px; margin-top: 16px; }
+  .rp-goto input { flex: 1; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); font-family: var(--font-mono); }
+  .rp-strip { margin-top: 8px; padding: 18px 18px 10px; }
+  .rp-note { font-size: 13px; color: var(--ink-3); margin: 4px 0 0; }
+  details.attr { border-top: 1px solid var(--line); padding: 10px 0; }
+  details.attr summary { cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; }
+  details.attr summary .n { font: 12px var(--font-mono); color: var(--ink-3); font-weight: 400; }
+  details.attr .table-wrap { margin-top: 10px; max-height: 360px; overflow: auto; }
+  @media (max-width: 900px) {
+    .rp-grid { grid-template-columns: 1fr; }
+    .rp-head h1 { font-size: 28px; }
+  }
+</style>
