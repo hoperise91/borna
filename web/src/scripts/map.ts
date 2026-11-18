@@ -16,7 +16,7 @@ import { liveStrip } from "../lib/strip";
 
 const OFM = "https://tiles.openfreemap.org/styles/";
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"; // for road labels on raster maps
-const ROAD_TYPES = ["A", "DN", "V", "DJ", "DC", "DP"];
+const ROAD_TYPES = ["A", "DX", "DN", "V", "DJ", "DC", "DP"];
 
 // Background maps: free, no keys. Raster ones get a minimal style.
 const MAPTILER_KEY: string | undefined = import.meta.env.PUBLIC_MAPTILER_KEY;
@@ -108,7 +108,8 @@ export function initMap(root: HTMLElement) {
   const store = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 
   let basemap = BASEMAPS.find((b) => b.id === stored("borna.basemap"))?.id ?? "light";
-  let visibleCats = new Set<string>(JSON.parse(stored("borna.cats") ?? "null") ?? ROAD_TYPES);
+  // v2: expressways (DX) added; older saved choices didn't know them
+  let visibleCats = new Set<string>(JSON.parse(stored("borna.cats.v2") ?? "null") ?? ROAD_TYPES);
   type FC = FeatureCollection;
   let selData: FC = { type: "FeatureCollection", features: [] };
 
@@ -342,7 +343,7 @@ export function initMap(root: HTMLElement) {
     if (bm) return setBasemap(bm.dataset.bm!);
     const q = t.closest<HTMLElement>("[data-quick]");
     if (q) {
-      visibleCats = new Set(q.dataset.quick === "main" ? ["A", "DN", "V"] : ROAD_TYPES);
+      visibleCats = new Set(q.dataset.quick === "main" ? ["A", "DX", "DN", "V"] : ROAD_TYPES);
       renderPanel();
       applyRoadTypes();
     }
@@ -402,7 +403,7 @@ export function initMap(root: HTMLElement) {
   loading(true);
 
   function applyRoadTypes() {
-    store("borna.cats", JSON.stringify([...visibleCats]));
+    store("borna.cats.v2", JSON.stringify([...visibleCats]));
     if (!map.getLayer("roads")) return;
     for (const id of ROAD_LAYERS) map.setFilter(id, typeFilter());
     map.setFilter("road-labels", labelFilter());

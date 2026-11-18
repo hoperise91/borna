@@ -38,6 +38,10 @@ from borna.romania import county_code, fold
 
 GAP_M = 300            # bridge gaps up to this size between dead ends of a road's ways
 MIN_PIECE_M = 500      # national roads: separate pieces shorter than this are ignored
+TWIN_M = 80            # a whole piece running this close alongside a longer piece ...
+TWIN_SHARE = 0.8       # ... for at least this share of its length is the other carriageway
+FOLD_NEAR_M = 70       # the path passing this close to itself, ...
+FOLD_MIN_M = 1500      # ... at least this far apart along it, is running back on itself
 OSM_ONLY_MIN_M = 2000  # OSM-only motorways/expressways shorter than this are not added
 MILESTONE_SNAP_M = 50  # a milestone further from the path than this is ignored
 JUNCTION_SNAP_M = 150  # the road named at a route end must come this close to the path
@@ -152,7 +156,15 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M,
     if g.number_of_nodes() == 0:
         return None
 
-    # bridge gaps: from each dead end to the nearest node of another component
+    # Dual carriageways mapped as two separate pieces: keep one, before anything links them
+    # (linked, the twins form a U or a loop, and paths run up one side and back the other).
+    pieces = list(nx.connected_components(g))
+    keep = _drop_twin_carriageways(g, pieces)
+    for c in pieces:
+        if c not in keep:
+            g.remove_nodes_from(c)
+
+    # bridge small mapping gaps: from each dead end to the nearest node of another piece
     comp_of = {n: i for i, comp in enumerate(nx.connected_components(g)) for n in comp}
     if len(set(comp_of.values())) > 1:
         nodes = list(g.nodes)
@@ -203,19 +215,54 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M,
         comp = min(comps, key=remoteness)
     else:
         comp = max(comps, key=comp_length)
-    h = g.subgraph(comp)
-    # double sweep: farthest node from anywhere, then farthest from that = the road's two ends
-    first = next(iter(comp))
+    h = nx.Graph(g.subgraph(comp))
+    for _ in range(6):  # drop legs where the path runs back on itself, then try again
+        route = _longest_route(h)
+        if route is None:
+            return None
+        path, gaps, spans = _assemble(h, route)
+        fold = _fold(path)
+        if fold is None:
+            return path, gaps
+        f, t = fold
+        h.remove_edges_from([e for e, (a, b) in spans.items() if f <= (a + b) / 2 <= t])
+        h = nx.Graph(h.subgraph(max(nx.connected_components(h), key=lambda c: sum(
+            d["weight"] for _, _, d in h.subgraph(c).edges(data=True)))))
+    return path, gaps
+
+
+def _drop_twin_carriageways(g: nx.Graph, comps: list[set]) -> list[set]:
+    """Motorways are mapped as two one-way carriageways; without their slip roads each is a
+    separate piece. Keep one: a piece lying mostly alongside a longer kept piece is its twin.
+    Linked to each other at one end, the twins would form a U that paths run up and back."""
+    def geom(c):
+        return MultiLineString([d["line"] for _, _, d in g.subgraph(c).edges(data=True)
+                                if d["line"] is not None] or [LineString(list(c)[:2])])
+    kept, zone = [], None
+    for c in sorted(comps, key=lambda c: -geom(c).length):
+        gc = geom(c)
+        if zone is not None and gc.intersection(zone).length >= TWIN_SHARE * gc.length:
+            continue
+        kept.append(c)
+        zone = gc.buffer(TWIN_M) if zone is None else zone.union(gc.buffer(TWIN_M))
+    return kept
+
+
+def _longest_route(h: nx.Graph) -> list | None:
+    """Double sweep: the farthest node from anywhere, then the farthest from that."""
+    first = next(iter(h.nodes))
     dist = nx.single_source_dijkstra_path_length(h, first)
     a = max(dist, key=dist.get)
     dist, paths = nx.single_source_dijkstra(h, a)
-    b = max(dist, key=dist.get)
-    route = paths[b]
-    if len(route) < 2:
-        return None
+    route = paths[max(dist, key=dist.get)]
+    return route if len(route) >= 2 else None
 
+
+def _assemble(h: nx.Graph, route: list):
+    """Route nodes -> (path, gaps, {edge: (from, to) position along the path})."""
     coords: list[tuple[float, float]] = []
     gaps: list[tuple[float, float]] = []
+    spans = {}
     run = 0.0
     for u, v in itertools.pairwise(route):
         edge = h[u][v]
@@ -227,8 +274,43 @@ def build_path(lines: list[LineString], gap_m: float = GAP_M,
         step = LineString(seg).length
         if edge.get("gap"):
             gaps.append((run, run + step))
+        spans[(u, v)] = (run, run + step)
         run += step
-    return LineString(coords), gaps
+    return LineString(coords), gaps, spans
+
+
+def _fold(path: LineString, step: float = 100.0) -> tuple[float, float] | None:
+    """Where the path runs back alongside itself (e.g. up one carriageway of a dual road and
+    back down the other): the (from, to) positions of the leg to drop, or None.
+    A fold at the start drops the outward leg; elsewhere the returning leg."""
+    n = int(path.length // step)
+    if n < 3:
+        return None
+    pos = [i * step for i in range(n + 1)]
+    pts = [path.interpolate(p) for p in pos]
+    tree = shapely.STRtree(pts)
+    back = {}  # sample index -> earliest earlier position it runs alongside
+    for i, p in enumerate(pts):
+        near = [j for j in tree.query(p, predicate="dwithin", distance=FOLD_NEAR_M)
+                if pos[j] < pos[i] - FOLD_MIN_M]
+        if near:
+            back[i] = min(pos[j] for j in near)
+    if len(back) * step < FOLD_MIN_M:
+        return None
+    # the longest run of consecutive "running back" samples
+    runs, cur = [], []
+    for i in sorted(back):
+        if cur and i != cur[-1] + 1:
+            runs.append(cur)
+            cur = []
+        cur.append(i)
+    runs.append(cur)
+    longest = max(runs, key=len)
+    if len(longest) * step < FOLD_MIN_M:
+        return None
+    late = (pos[longest[0]], pos[longest[-1]])
+    early = (min(back[i] for i in longest), max(back[i] for i in longest))
+    return (0.0, late[0]) if early[0] < FOLD_MIN_M else late
 
 
 # --- 3. calibration --------------------------------------------------------------------
@@ -281,6 +363,11 @@ def anchors_for(length: float, km_from: float, km_to: float,
     """Control points (pos ascending, km ascending) that define km along the path."""
     pts = _increasing([c for c in interior if 0 <= c.pos <= length])
     if not pts:
+        span = km_to - km_from
+        if span <= 0 or abs(length / 1000 - span) / span > LENGTH_TOLERANCE:
+            # the path doesn't match the official span (a road longer than the register says,
+            # like A3, or only partly mapped): count km at true scale from the start, estimated
+            return [Control(0, km_from, "start"), Control(length, km_from + length / 1000, "extrapolated")]
         return [Control(0, km_from, "start"), Control(length, km_to, "end")]
     if pts[0].pos < 1:
         pts[0] = Control(0, pts[0].km, pts[0].kind)

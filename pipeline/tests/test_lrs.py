@@ -84,6 +84,12 @@ def test_anchors_official_ends_without_controls():
     assert [(c.pos, c.km, c.kind) for c in a] == [(0, 0, "start"), (10000, 10, "end")]
 
 
+def test_anchors_true_scale_when_path_disagrees_with_official_span():
+    # register says km 0-68.8, the mapped road is 400 km: don't squeeze, count at true scale
+    a = anchors_for(400000, 0, 68.8, [])
+    assert [(c.km, c.kind) for c in a] == [(0, "start"), (400, "extrapolated")]
+
+
 def test_anchors_drop_outlier_and_extrapolate():
     controls = [Control(2000, 12, "milestone"), Control(5000, 15, "milestone"),
                 Control(6000, 3, "milestone"),            # wrong km: dropped
@@ -113,3 +119,38 @@ def test_stop_names():
     assert stop_names("Limită județ Brașov - Aita Mare (DJ 103E) - Vârghiș") == (None, "VARGHIS")
     assert stop_names("Mun. Sfântu Gheorghe - Băile Șugaș") == ("SFANTU GHEORGHE", "BAILE SUGAS")
     assert stop_names("DN 1C - Muncel") == (None, "MUNCEL")
+
+
+def test_dual_carriageway_joined_at_one_end_is_not_doubled():
+    # two one-way carriageways 30 m apart, joined only at the north end (a U): the path must
+    # run end to end along one side (50 km), not up one side and back down the other (100 km)
+    north = LineString([(0, 0), (0, 50000)])
+    south = LineString([(30, 50000), (30, 0)])
+    link = LineString([(0, 50000), (30, 50000)])
+    path, gaps = build_path([north, south, link], connect_pieces=True)
+    assert path.length == pytest.approx(50000, abs=100)
+    assert gaps == []
+
+
+def test_fold_at_one_end_is_removed():
+    # carriageways joined at the east end only, far apart at the west end (no bridge):
+    # the path must not run east on one side and back west on the other
+    from borna.lrs import build_path
+    north = LineString([(0, 0), (40000, 0)])
+    south = LineString([(40000, 30), (500, 30)])            # stops 500 m short: > GAP_M from (0, 0)
+    link = LineString([(40000, 0), (40000, 30)])
+    path, _ = build_path([north, south, link], connect_pieces=True)
+    assert path.length == pytest.approx(40000, rel=0.03)
+
+
+def test_twin_carriageway_pieces_are_not_linked_into_a_u():
+    # two sections, each mapped as two separate carriageways (no slip roads): keep one side
+    # of each and link the sections end to end
+    from borna.lrs import build_path
+    a1 = LineString([(0, 0), (20000, 0)])
+    a2 = LineString([(20000, 30), (0, 30)])
+    b1 = LineString([(30000, 0), (50000, 0)])
+    b2 = LineString([(50000, 30), (30000, 30)])
+    path, gaps = build_path([a1, a2, b1, b2], connect_pieces=True)
+    assert path.length == pytest.approx(50000, abs=100)
+    assert len(gaps) == 1 and gaps[0][1] - gaps[0][0] == pytest.approx(10000, abs=100)
