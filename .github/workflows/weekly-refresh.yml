@@ -25,7 +25,7 @@ jobs:
         shell: bash -el {0}   # login shell, so the micromamba tools are on PATH
     env:
       # Overture is not used after import (only for exploration), so the weekly run skips it.
-      SOURCES: osm hg540 gisco ins_trn139a aadt_end   # what `make import` loads
+      SOURCES: osm gisco ins_trn139a aadt_end   # what `make import` loads (HG 540 is read by `make register`)
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
