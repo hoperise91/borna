@@ -45,10 +45,17 @@ const layers = [
 
     <div class="map-wrap">
       <div id="map" class="map" role="region" aria-label={s.nav_map}></div>
-      <div class="layer-switch" role="radiogroup" aria-label={s.layers}>
-        {layers.map(([id, label], i) => (
-          <button type="button" role="radio" aria-checked={i === 0 ? "true" : "false"} data-layer={id}>{label}</button>
-        ))}
+      <div class="colour-by">
+        <button type="button" class="colour-btn" id="colour-btn" aria-haspopup="true" aria-expanded="false"
+          aria-controls="colour-menu" title={s.colour_by_long}>
+          <span class="muted">{s.colour_by}:</span> <b id="colour-current">{s.layer_category}</b>
+          <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="colour-menu" id="colour-menu" role="radiogroup" aria-label={s.colour_by_long} hidden>
+          {layers.map(([id, label], i) => (
+            <button type="button" role="radio" aria-checked={i === 0 ? "true" : "false"} data-layer={id}>{label}</button>
+          ))}
+        </div>
       </div>
       <div class="legend-box" id="legend-box">
         <button type="button" class="legend-head" id="legend-head" aria-expanded="true" aria-controls="legend">
@@ -149,18 +156,38 @@ const layers = [
 
   .map-wrap { position: relative; min-width: 0; }
   .map-wrap .map { position: absolute; inset: 0; background: var(--paper); } /* beats .maplibregl-map */
-  .layer-switch {
-    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 2px; padding: 3px; border-radius: 999px;
+  .colour-by { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3; }
+  .colour-btn {
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
     background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--shadow);
-    border: 1px solid var(--line); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); backdrop-filter: blur(6px); font-size: 13.5px; color: var(--ink); white-space: nowrap;
   }
-  .layer-switch button {
-    border: 0; background: transparent; padding: 6px 13px; border-radius: 999px; cursor: pointer;
-    font-size: 13.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap;
+  .colour-btn b { font-weight: 600; }
+  .colour-btn svg { color: var(--ink-3); transition: transform .2s ease; }
+  .colour-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .colour-menu {
+    position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); min-width: 190px;
+    display: grid; padding: 5px; border-radius: 12px; background: var(--panel);
+    border: 1px solid var(--line); box-shadow: var(--shadow); animation: rise .15s ease-out;
   }
-  .layer-switch button:hover { color: var(--ink); }
-  .layer-switch button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
+  .colour-menu[hidden] { display: none; }
+  .colour-menu button {
+    border: 0; background: none; text-align: left; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 14px; color: var(--ink-2);
+  }
+  .colour-menu button:hover { background: var(--paper); color: var(--ink); }
+  .colour-menu button[aria-checked="true"] { color: var(--ink); font-weight: 600; background: var(--paper); }
+  .data-list { display: grid; gap: 2px; margin-bottom: 14px; }
+  .data-grp { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); margin: 10px 0 2px; }
+  .data-row { display: flex; align-items: center; gap: 9px; padding: 4px 4px; border-radius: 7px; font-size: 14px; }
+  .data-row:hover { background: var(--paper); }
+  .data-row label { flex: 1; display: flex; align-items: center; gap: 9px; cursor: pointer; }
+  .data-row input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+  .data-row .colour-pick { margin-left: auto; }
+  .data-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); padding: 0 4px; }
+  .at-point-h { font-size: 15px; margin: 2px 0 8px; color: var(--ink); }
+  .at-point { margin: 0 0 16px; }
+  .at-point .src-tag { display: block; font-size: 11.5px; color: var(--ink-3); }
   .legend-box {
     position: absolute; left: 12px; bottom: calc(28px + var(--sheet-visible, 0px)); border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--shadow);
@@ -275,7 +302,8 @@ const layers = [
     .search { padding: 4px 12px 10px; }
     .search-icon { left: 25px; top: 16px; }
     .search .clear { right: 20px; top: 11px; }
-    .layer-switch { left: 8px; right: 52px; transform: none; overflow-x: auto; justify-content: flex-start; }
+    .colour-by { left: 8px; transform: none; }
+    .colour-menu { left: 0; transform: none; }
     .legend-box { left: 8px; bottom: calc(10px + var(--sheet-visible, 0px)); max-width: calc(100% - 70px); }
     .layers-panel { right: 48px; left: 8px; width: auto; top: 52px; max-height: calc(100% - 64px - var(--sheet-visible, 0px)); }
     .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: var(--sheet-visible, 0px); transition: bottom .25s ease; }

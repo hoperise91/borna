@@ -6,6 +6,7 @@ import {
 } from "./roads";
 
 interface Band {
+  id: string; // data type: surface, lanes, maxspeed, aadt, structures, quality
   label: string;
   items: { f: number; t: number; color: string; text: string }[];
   ticks?: boolean; // narrow marks (bridges, tunnels)
@@ -25,13 +26,13 @@ export function bands(road: Road, s: Strings): Band[] {
   const out: Band[] = [];
   const surfaceLabel = (c: string) => (s as Record<string, string>)[`s_${c}`] ?? c;
   out.push({
-    label: s.surface,
+    id: "surface", label: s.surface,
     items: ev("surface").map(([f, t, v]) => ({
       f, t, color: SURFACE_COLOR[surfaceClass(v)], text: `${surfaceLabel(surfaceClass(v))} (${v})`,
     })),
   });
   out.push({
-    label: s.lanes,
+    id: "lanes", label: s.lanes,
     items: ev("lanes").map(([f, t, v]) => {
       const n = parseInt(v, 10);
       const shade = ["#d8d3c8", "#b8b0a0", "#8c826e", "#5f5646", "#3b342a"][Math.min(Math.max(n, 1), 5) - 1];
@@ -39,12 +40,12 @@ export function bands(road: Road, s: Strings): Band[] {
     }),
   });
   out.push({
-    label: s.maxspeed,
+    id: "maxspeed", label: s.maxspeed,
     items: ev("maxspeed").map(([f, t, v]) => ({ f, t, color: speedColor(v), text: `${v} km/h` })),
   });
   if (ev("aadt").length) {
     out.push({
-      label: s.aadt,
+      id: "aadt", label: s.aadt,
       items: ev("aadt").map(([f, t, v]) => ({
         f, t, color: aadtColor(v), text: `${Number(v).toLocaleString()} ${s.vehicles_day}`,
       })),
@@ -54,9 +55,9 @@ export function bands(road: Road, s: Strings): Band[] {
     ...ev("bridge").map(([f, t]) => ({ f, t, color: "#1d5fbf", text: s.bridge })),
     ...ev("tunnel").map(([f, t]) => ({ f, t, color: "#2b2b2b", text: s.tunnel })),
   ];
-  if (structures.length) out.push({ label: `${s.bridge} / ${s.tunnel}`, items: structures, ticks: true });
+  if (structures.length) out.push({ id: "structures", label: `${s.bridge} / ${s.tunnel}`, items: structures, ticks: true });
   out.push({
-    label: s.km_quality,
+    id: "quality", label: s.km_quality,
     items: road.segments.map(([f, t, q]) => ({
       f, t, color: QUALITY_COLOR[q], text: (s as Record<string, string>)[`q_${q}`] ?? q,
     })),
@@ -65,12 +66,21 @@ export function bands(road: Road, s: Strings): Band[] {
 }
 
 /** Render the diagram into `el`. `compact` drops the label column and shows fewer bands. */
-export function renderStrip(el: HTMLElement, road: Road, s: Strings, opts: { compact?: boolean } = {}) {
+export interface StripOpts { compact?: boolean; only?: string[] }
+
+/** Bands shown: all, or (compact) the given data types, else surface, lanes and speed. */
+export function stripBands(road: Road, s: Strings, opts: StripOpts = {}): Band[] {
+  const list = bands(road, s);
+  if (!opts.compact) return list;
+  const only = opts.only ?? ["surface", "lanes", "maxspeed"];
+  return list.filter((b) => only.includes(b.id));
+}
+
+export function renderStrip(el: HTMLElement, road: Road, s: Strings, opts: StripOpts = {}) {
   const from = road.segments.length ? Math.min(...road.segments.map((x) => x[0])) : road.km_from ?? 0;
   const to = road.segments.length ? Math.max(...road.segments.map((x) => x[1])) : road.km_to ?? 1;
   const span = Math.max(to - from, 0.001);
-  let list = bands(road, s);
-  if (opts.compact) list = list.filter((b) => [s.surface, s.maxspeed, s.lanes].includes(b.label));
+  const list = stripBands(road, s, opts);
 
   const labelW = opts.compact ? 0 : 128;
   const width = Math.max(el.clientWidth || 600, 280);
@@ -107,7 +117,7 @@ export function renderStrip(el: HTMLElement, road: Road, s: Strings, opts: { com
 }
 
 /** Re-render on resize; returns a cleanup function. */
-export function liveStrip(el: HTMLElement, road: Road, s: Strings, opts: { compact?: boolean } = {}) {
+export function liveStrip(el: HTMLElement, road: Road, s: Strings, opts: StripOpts = {}) {
   renderStrip(el, road, s, opts);
   const ro = new ResizeObserver(() => renderStrip(el, road, s, opts));
   ro.observe(el);

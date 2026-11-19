@@ -10,9 +10,10 @@ import type { Strings } from "../lib/i18n";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, DATA_URL, QUALITY_COLOR, SURFACE_COLOR, type IndexRow,
   type LonLat, type Quality, type Road, fetchIndex, fetchRoad, fold, formatKm, formatLength,
-  locate, measure, parseQuery, qualityShares,
+  locate, measure, parseQuery, qualityShares, fetchSources, surfaceClass, type Event,
 } from "../lib/roads";
-import { liveStrip } from "../lib/strip";
+import { liveStrip, stripBands } from "../lib/strip";
+import { COLOUR_MODES, DATA_GROUPS, DATA_TYPES, DEFAULT_DATA, type DataId, type Mode } from "../lib/datatypes";
 
 const OFM = "https://tiles.openfreemap.org/styles/";
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"; // for road labels on raster maps
@@ -59,7 +60,6 @@ function basemapStyle(id: string): string | maplibregl.StyleSpecification {
   return typeof b.style === "string" ? b.style : b.style();
 }
 const RO_BOUNDS: [[number, number], [number, number]] = [[20.2, 43.6], [29.75, 48.3]];
-type Mode = "category" | "surface" | "maxspeed" | "aadt" | "width" | "owner";
 
 // Administrator by road category (OG 43/1997): national roads -> the state (CNAIR), county
 // roads -> county council, communal roads -> local council, DP -> private owner.
@@ -200,6 +200,11 @@ export function initMap(root: HTMLElement) {
   };
   let showLabels = stored("borna.labels") !== "0";
   let showConstruction = stored("borna.construction") !== "0";
+  // Data types shown in the road panel (ticked in the data list).
+  let shownData = new Set<DataId>(JSON.parse(stored("borna.data") ?? "null") ?? DEFAULT_DATA);
+  // Source versions, for "source · date" next to each value.
+  const sourceVersion: Record<string, string> = {};
+  fetchSources().then((list) => list.forEach((x) => { sourceVersion[x.id] = x.version; })).catch(() => {});
   let hoverKey = "";
   const ROAD_LAYERS = ["roads-casing", "roads", "surface", "maxspeed", "aadt", "lanes", "width", "construction"];
 
@@ -378,6 +383,16 @@ export function initMap(root: HTMLElement) {
   const T = s as Record<string, string>;
   function renderPanel() {
     panel.innerHTML = `
+      <h3>${esc(s.data_list)}</h3>
+      <p class="small muted" style="margin:-4px 0 6px">${esc(s.data_hint)}</p>
+      <div class="data-list">${DATA_GROUPS.map((g) => `
+        <div class="data-grp">${esc(T[g.label])}</div>${g.items.map((d) => `
+        <div class="data-row">
+          <label><input type="checkbox" data-show="${d.id}" ${shownData.has(d.id) ? "checked" : ""}/>${esc(T[d.label])}</label>
+          ${d.colour ? `<input type="radio" name="colour" class="colour-pick" data-colour="${d.colour}"
+            aria-label="${esc(s.colour_by_long)}: ${esc(T[d.label])}" ${mode === d.colour ? "checked" : ""}/>` : ""}
+        </div>`).join("")}`).join("")}
+      </div>
       <h3>${esc(s.basemap)}</h3>
       <div class="bm-grid">${BASEMAPS.map((b) => `
         <button type="button" class="bm" data-bm="${b.id}" aria-pressed="${b.id === basemap}">
@@ -412,6 +427,14 @@ export function initMap(root: HTMLElement) {
   });
   panel.addEventListener("change", (e) => {
     const box = e.target as HTMLInputElement;
+    if (box.dataset.show) {
+      const id = box.dataset.show as DataId;
+      if (box.checked) shownData.add(id); else shownData.delete(id);
+      store("borna.data", JSON.stringify([...shownData]));
+      if (current.kind === "road") { stopStrip?.(); stopStrip = null; current.render(); } // open road follows
+      return;
+    }
+    if (box.dataset.colour) { setMode(box.dataset.colour as Mode); return; }
     if (box.hasAttribute("data-construction")) {
       showConstruction = box.checked;
       store("borna.construction", showConstruction ? "1" : "0");
@@ -473,12 +496,28 @@ export function initMap(root: HTMLElement) {
   }
 
   // ---- layer modes & legend -----------------------------------------------------------
-  root.querySelectorAll<HTMLButtonElement>(".layer-switch button").forEach((b) =>
-    b.addEventListener("click", () => {
-      mode = b.dataset.layer as Mode;
-      root.querySelectorAll(".layer-switch button").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
-      applyMode();
-    }));
+  // One compact "Colour: …" choice instead of a row of tabs (the data list also sets it).
+  const colourBtn = root.querySelector<HTMLButtonElement>("#colour-btn")!;
+  const colourMenu = root.querySelector<HTMLElement>("#colour-menu")!;
+  const showColourMenu = (open: boolean) => {
+    colourMenu.hidden = !open;
+    colourBtn.setAttribute("aria-expanded", String(open));
+  };
+  colourBtn.addEventListener("click", (e) => { e.stopPropagation(); showColourMenu(colourMenu.hasAttribute("hidden")); });
+  document.addEventListener("click", (e) => {
+    if (!colourMenu.hidden && !colourMenu.contains(e.target as Node)) showColourMenu(false);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") showColourMenu(false); });
+  colourMenu.querySelectorAll<HTMLButtonElement>("button").forEach((b) =>
+    b.addEventListener("click", () => { setMode(b.dataset.layer as Mode); showColourMenu(false); }));
+  function setMode(m: Mode) {
+    mode = m;
+    colourMenu.querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", String(x.getAttribute("data-layer") === m)));
+    const label = COLOUR_MODES.find((d) => d.colour === m)!.label;
+    root.querySelector("#colour-current")!.textContent = T[label];
+    applyMode();
+    if (!panel.hidden) renderPanel();
+  }
 
   legend.addEventListener("click", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-toggle]");
@@ -710,6 +749,9 @@ export function initMap(root: HTMLElement) {
     const statusText = (s as Record<string, string>)[`status_${road.lrs.status ?? "no_geometry"}`] ?? "";
     const through = road.counties ? [...new Set(road.counties.map((c) => c[0]))] : road.through ?? [];
     const srcIds = new Set(Object.values(road.attributes).flat().map((e) => e[3]));
+    // The strip shows the ticked data types that are drawn along the road.
+    const stripOnly = ["surface", "lanes", "maxspeed", "aadt", "structures"].filter((id) => shownData.has(id as DataId));
+    const stripLabels = onMap ? stripBands(road, s, { compact: true, only: stripOnly }).map((b) => b.label) : [];
     const sources = [road.legal_source?.split(" (")[0] ?? (road.lrs.status === "osm_only" ? "" : "HG 540/2000"),
       onMap ? "© OpenStreetMap (ODbL)" : "", srcIds.has("aadt_end") ? "MMAP, data.gov.ro (CC BY 4.0)" : ""].filter(Boolean);
 
@@ -724,6 +766,7 @@ export function initMap(root: HTMLElement) {
         <span class="km">km ${formatKm(here.km)}</span>
         <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span></div>` : ""}
       ${outOfRange ? `<p class="msg">${esc(s.km_out_of_range)}</p>` : ""}
+      ${here && shownData.size ? atPoint(road, here.km) : ""}
       <dl class="facts">
         <dt>${esc(s.official_length)}</dt><dd>${formatLength(road.length_official, lang)}</dd>
         <dt>${esc(s.official_km)}</dt><dd class="mono">${formatKm(road.km_from)} – ${formatKm(road.km_to)}</dd>
@@ -737,8 +780,8 @@ export function initMap(root: HTMLElement) {
       </dl>
       ${onMap ? `<form class="goto" id="goto"><input inputmode="decimal" placeholder="${esc(s.go_to_km)}, ${formatKm(((road.km_from ?? 0) + (road.km_to ?? 0)) / 2)}" aria-label="${esc(s.go_to_km)}"/>
         <button class="btn">${esc(s.go)}</button></form>
-        <div class="mini-strip" id="mini-strip"></div>
-        <div class="mini-legend"><span>${esc(s.surface)}</span><span>·</span><span>${esc(s.lanes)}</span><span>·</span><span>${esc(s.maxspeed)}</span></div>` : ""}
+        ${stripLabels.length ? `<div class="mini-strip" id="mini-strip"></div>
+        <div class="mini-legend">${stripLabels.map((l) => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}` : ""}
       <div class="actions">
         <a class="btn primary" href="${roadUrl}?r=${encodeURIComponent(road.key)}">${esc(s.road_page)} →</a>
         ${onMap ? `<button type="button" class="btn" id="fit">${esc(s.zoom_to_road)}</button>` : ""}
@@ -746,7 +789,8 @@ export function initMap(root: HTMLElement) {
       <p class="src">${esc(s.sources)}: ${sources.map(esc).join(" · ")}</p></section>`;
 
     if (onMap) {
-      stopStrip = liveStrip(view.querySelector<HTMLElement>("#mini-strip")!, road, s, { compact: true });
+      const stripEl = view.querySelector<HTMLElement>("#mini-strip");
+      if (stripEl) stopStrip = liveStrip(stripEl, road, s, { compact: true, only: stripOnly });
       view.querySelector("#fit")!.addEventListener("click", () => road.bbox && map.fitBounds(
         [[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]], { padding: fitPad(50), maxZoom: 14 }));
       view.querySelector("#goto")!.addEventListener("submit", (e) => {
@@ -756,6 +800,65 @@ export function initMap(root: HTMLElement) {
         if (p.km != null) selectRoad(road.key, { km: p.km });
       });
     }
+  }
+
+  // "Source · date" under each value (dates from sources.json; HG 540 is cited, not dated).
+  function srcTag(id: string): string {
+    const v = sourceVersion[id];
+    const date = v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split("-").reverse().join(".") : v;
+    const name = id === "osm" ? "OpenStreetMap" : id === "aadt_end" ? "MMAP, data.gov.ro" : id === "hg540" ? "HG 540/2000" : id;
+    return `<span class="src-tag">${esc(name)}${date && id !== "hg540" ? ` · ${esc(date)}` : ""}</span>`;
+  }
+
+  // The ticked data types at one km of the road: value, source and date (the data list's purpose).
+  function atPoint(road: Road, km: number): string {
+    const locale = lang === "ro" ? "ro-RO" : "en-GB";
+    // Several OSM ways can cover one km (junction pieces, the other carriageway): take the
+    // longest stretch, which is the road's own line rather than a short piece of a junction.
+    const ev = (type: string): Event | undefined => (road.attributes[type] ?? [])
+      .filter(([f, t]) => km >= f - 1e-6 && km <= t + 1e-6)
+      .sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0];
+    const roadSrc = road.lrs.status === "osm_only" ? "osm" : "hg540";
+    const laneW = ["A", "DX", "DN", "V"].includes(road.category) ? 3.5 : 3.0;
+    const rows: [string, string, string | undefined][] = [];
+    for (const d of DATA_TYPES) {
+      if (!shownData.has(d.id)) continue;
+      let val: string | null = null;
+      let src: string | undefined;
+      const take = (e: Event | undefined, text: (v: string) => string) => {
+        if (e) { val = text(e[2]); src = e[3]; }
+      };
+      switch (d.id) {
+        case "category": val = cat(road.category); src = roadSrc; break;
+        case "owner":
+          val = T[`owner_${OWNER_OF[road.category] ?? "private"}`] + (road.owner ? ` · ${road.owner}` : "");
+          src = roadSrc; break;
+        case "surface": take(ev("surface"), (v) => `${T[`s_${surfaceClass(v)}`] ?? v} (${v})`); break;
+        case "lanes": take(ev("lanes"), (v) => v); break;
+        case "width": {
+          take(ev("width"), (v) => `${v} m`);
+          const l = ev("lanes");
+          const n = l ? parseInt(l[2], 10) : NaN;
+          if (val == null && l && n) { // estimate from lanes, labelled as such
+            val = `≈ ${(n * laneW).toLocaleString(locale, { maximumFractionDigits: 1 })} m (${s.estimated_short})`;
+            src = l[3];
+          }
+          break;
+        }
+        case "structures": {
+          const b = ev("bridge"), t = ev("tunnel");
+          val = b ? s.bridge : t ? s.tunnel : null;
+          src = (b ?? t)?.[3];
+          break;
+        }
+        case "maxspeed": take(ev("maxspeed"), (v) => (/^\d+$/.test(v) ? `${v} km/h` : v)); break;
+        case "aadt": take(ev("aadt"), (v) => `${Number(v).toLocaleString(locale)} ${s.vehicles_day}`); break;
+      }
+      rows.push([T[d.label], val ?? s.none_here, val == null ? undefined : src]);
+    }
+    return `<h3 class="at-point-h">${esc(s.at_point)}</h3>
+      <dl class="facts at-point">${rows.map(([l, v, src]) =>
+        `<dt>${esc(l)}</dt><dd>${esc(v)}${src ? srcTag(src) : ""}</dd>`).join("")}</dl>`;
   }
 
   function countyAtKm(road: Road, km: number | undefined): string | null {
