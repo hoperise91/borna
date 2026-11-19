@@ -33,7 +33,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-name: borna
-          create-args: python=3.12 osm2pgsql>=2 gdal tippecanoe rclone
+          create-args: python=3.12 osm2pgsql>=2 gdal libgdal-pg tippecanoe rclone   # libgdal-pg: ogr2ogr → PostGIS
           cache-environment: true
 
       - name: Start PostGIS
