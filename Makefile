@@ -17,7 +17,7 @@ RUN  := cd pipeline && ../$(PY) -m
 SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build refresh deploy-data snapshot-raw restore-raw test
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build refresh deploy-data snapshot-raw restore-raw fetch-install fetch-uninstall test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -84,6 +84,7 @@ refresh: setup ## Phase 4.1: compare the new export with the live one, run the c
 R2_BUCKET ?= borna-data
 R2_RAW_BUCKET ?= borna-raw
 SLOW_SOURCES := hg540 gisco ins_trn139a aadt_end
+SAVED_SOURCES := osm $(SLOW_SOURCES)   # copies in the private bucket, for when a server refuses CI
 # rclone reads its R2 remote from the environment; keys stay out of the echoed command.
 R2_ENV = RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
 	RCLONE_CONFIG_R2_ACCESS_KEY_ID="$$R2_ACCESS_KEY_ID" RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$$R2_SECRET_ACCESS_KEY" \
@@ -96,13 +97,24 @@ deploy-data: r2-keys ## Phase 3.5: sync web/public/data/ to Cloudflare R2 (needs
 	@test -f web/public/data/index.json || { echo "Run make tiles first"; exit 1; }
 	@$(R2_ENV) rclone sync web/public/data/ r2:$(R2_BUCKET)/ --checksum --transfers 32 --fast-list --stats-one-line -v
 
-snapshot-raw: r2-keys ## Phase 4.1: save the slow-changing sources to the private R2 bucket (run where their servers answer)
-	@$(R2_ENV) rclone sync data/raw/ r2:$(R2_RAW_BUCKET)/ $(foreach s,$(SLOW_SOURCES),--include "$(s)/**") --checksum --stats-one-line -v
+snapshot-raw: r2-keys ## Phase 4.1: save OSM + the slow-changing sources to the private R2 bucket (run where their servers answer)
+	@$(R2_ENV) rclone sync data/raw/ r2:$(R2_RAW_BUCKET)/ $(foreach s,$(SAVED_SOURCES),--include "$(s)/**") --checksum --stats-one-line -v
 
 restore-raw: r2-keys ## Phase 4.1: fetch one saved source when its server does not answer (S=hg540)
 	@test -n "$(S)" || { echo "usage: make restore-raw S=<source>"; exit 1; }
 	@$(R2_ENV) rclone copy r2:$(R2_RAW_BUCKET)/$(S)/ data/raw/$(S)/ --stats-one-line -v
 	@test -f data/raw/$(S)/manifest.json && echo "$(S): restored saved copy"
+
+FETCH_AGENT := $(HOME)/Library/LaunchAgents/ro.bornakm.fetch.plist
+fetch-install: ## Phase 4.1: install the Mac helper that saves fresh OSM + HG 540 to the private bucket weekly
+	@mkdir -p data/out/fetch $(dir $(FETCH_AGENT))
+	@sed "s|REPO|$(CURDIR)|g" deploy/ro.bornakm.fetch.plist > $(FETCH_AGENT)
+	@launchctl bootout gui/$$(id -u) $(FETCH_AGENT) 2>/dev/null || true
+	@launchctl bootstrap gui/$$(id -u) $(FETCH_AGENT) && echo "installed: runs every 3 h while awake, works once a week (log: data/out/fetch/fetch.log)"
+
+fetch-uninstall: ## Phase 4.1: remove the Mac helper
+	@launchctl bootout gui/$$(id -u) $(FETCH_AGENT) 2>/dev/null || true
+	@rm -f $(FETCH_AGENT) && echo "removed"
 
 test: setup ## Run pipeline unit tests and lint
 	cd pipeline && ../$(VENV)/bin/pytest -q && ../$(VENV)/bin/ruff check borna tests

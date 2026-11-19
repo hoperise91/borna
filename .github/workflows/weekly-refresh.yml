@@ -45,19 +45,22 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          # OSM changes daily and must be fresh. The other sources change a few times a year and
-          # some servers refuse CI machines (legislatie.just.ro): use the saved copy from the
-          # private bucket then (`make snapshot-raw` on the owner's machine), and say so in the note.
+          # When a server refuses CI (legislatie.just.ro always, Geofabrik at times), use the copy
+          # in the private bucket (saved weekly by the owner's Mac, `make fetch-install`) and say so.
           mkdir -p data/out/refresh
-          # Some CI machines cannot reach Geofabrik at first: try three times, 5 minutes apart.
-          for try in 1 2 3; do
-            make download SOURCES=osm && break
-            if [ $try = 3 ]; then
-              echo "The OpenStreetMap download from Geofabrik failed 3 times (the run log says why)." > data/out/refresh/unreachable
-              exit 1
+          # Geofabrik refuses some CI machines: try twice, then use the copy the owner's Mac saved
+          # this week (scripts/weekly-fetch.sh); the note says which OSM date was used.
+          if ! make download SOURCES=osm; then
+            sleep 120
+            if ! make download SOURCES=osm; then
+              if make restore-raw S=osm; then
+                echo osm >> data/out/refresh/fallbacks
+              else
+                echo "The OpenStreetMap download from Geofabrik failed and there is no saved copy." > data/out/refresh/unreachable
+                exit 1
+              fi
             fi
-            sleep 300
-          done
+          fi
           for s in hg540 gisco ins_trn139a aadt_end; do
             timeout 600 make download SOURCES=$s || { make restore-raw S=$s && echo $s >> data/out/refresh/fallbacks; }
           done

@@ -240,8 +240,8 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
                          "`make download SOURCES=hg540 snapshot-raw` on your Mac to look for amendments.")
     if saved:
         lines += ["", "### Saved copies used",
-                  ("These servers did not answer the CI machine, so last saved copies were used. "
-                  "To refresh them, run `make download snapshot-raw` on your Mac.")]
+                  ("These servers refused the CI machine, so the copies your Mac saved were used "
+                   "(the Mac helper refreshes OSM and HG 540 weekly while the Mac is awake).")]
         for f in saved:
             lines.append(f"- {f['id']}: version {f['version']}, saved {f['retrieved']}")
     if waiting:
