@@ -312,17 +312,40 @@ export function initMap(root: HTMLElement) {
     map.getCanvas().style.cursor = "pointer";
     hoverKey = f.properties.k as string;
     map.setFilter("road-hover", ["==", ["get", "k"], hoverKey]);
+    const v = hoverValue(e.point, f.properties.t as string);
     hoverPopup.setLngLat(e.lngLat)
-      .setHTML(`${shield(f.properties.r, f.properties.t)}${hoverKey.includes("-")
-        ? ` <span class="small muted">${esc(countyName(hoverKey.split("-")[0]))}</span>` : ""}`)
+      .setHTML(v ? `<span class="hv">${esc(v)}</span>` : `<span class="hv muted">${esc(s.unknown)}</span>`)
       .addTo(map);
   });
+  // Hover shows only the value the map is coloured by at that spot, not the road's name: its label
+  // is on the map anyway (owner's choice). Values come from the tiles' attribute layers.
+  function hoverValue(pt: maplibregl.Point, t: string): string | null {
+    const T = s as Record<string, string>;
+    const locale = lang === "ro" ? "ro-RO" : "en-GB";
+    const num = (x: number, d = 1) => x.toLocaleString(locale, { maximumFractionDigits: d });
+    if (mode === "category") return cat(t);
+    if (mode === "owner") return T[`owner_${["A", "DX", "DN", "V"].includes(t) ? "state"
+      : t === "DJ" ? "county" : t === "DC" ? "commune" : "private"}`];
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[pt.x - 4, pt.y - 4], [pt.x + 4, pt.y + 4]];
+    const at = (layer: string) => map.getLayer(layer)
+      ? map.queryRenderedFeatures(box, { layers: [layer] })[0]?.properties.v : undefined;
+    if (mode === "surface") { const v = at("surface"); return v != null ? T[`s_${v}`] ?? String(v) : null; }
+    if (mode === "maxspeed") { const v = at("maxspeed"); return v == null ? null : /^\d+$/.test(String(v)) ? `${v} km/h` : String(v); }
+    if (mode === "aadt") { const v = at("aadt"); return v != null ? `${num(Number(v), 0)} ${s.vehicles_day}` : null; }
+    if (mode === "width") {
+      const w = at("width");
+      if (w != null) return `${num(Number(w))} m`;
+      const l = at("lanes");  // estimate: lanes × 3.5 m (A, DX, DN, V) or 3.0 m (DJ, DC)
+      return l != null ? `≈ ${num(Number(l) * (["A", "DX", "DN", "V"].includes(t) ? 3.5 : 3.0))} m · ${l} ${s.lanes.toLowerCase()}` : null;
+    }
+    return null;
+  }
   map.on("mousemove", "construction", (e) => {
     const f = e.features?.[0];
     if (!f || map.queryRenderedFeatures(e.point, { layers: ["roads"] }).length) return;
     const o = f.properties.o ? ` · ${esc(s.opening)} ${esc(f.properties.o)}` : "";
     hoverPopup.setLngLat(e.lngLat)
-      .setHTML(`${shield(f.properties.r, f.properties.t)} <span class="small">${esc(s.under_construction)}${o}</span>`)
+      .setHTML(`<span class="hv">${esc(s.under_construction)}${o}</span>`)
       .addTo(map);
   });
   map.on("mouseleave", "construction", () => { if (!hoverKey) hoverPopup.remove(); });
