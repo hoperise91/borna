@@ -45,6 +45,8 @@
 5. Bridges/tunnels as point objects, Mapillary signs, "report an error" link (Phase 4). ~~DN roads missing from HG 540~~ ✅ 2026-11-19: 36 national roads from OSM (incl. Centura Brașov, Făgăraș and Sfântu Gheorghe bypasses); review list in `data/out/lrs/osm_only.csv`; named bypasses (Centura/Varianta) also count at ≥1 km and when tagged secondary (Beclean, Brănești); county roads whose relation claims national-tagged ways for ≥50% of their official length give them up (DJ113 CV, DJ156 PH, DC35 IL) (A8/A13/DX6 under construction, Centura Beclean 1.5 km, Brănești bypass tagged secondary, …).
 6. Waiting on others (rechecked 2026-11-19: still down): ANCPI orthophoto (0.5 m), geoportal.ancpi.ro has no DNS record at all, so the service may have moved; TENtec, tentec.transport.ec.europa.eu answers 503 → EC "server temporarily unavailable" page; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
 
+**Open with the owner (2026-11-19 evening):** contact address — owner decides tomorrow between (1) Cloudflare Email Routing to Gmail + Gmail "Send mail as" via a free SMTP relay (e.g. Brevo), or (2) a separate mailbox (Zoho free / paid Proton, Fastmail, Workspace); then add a "report an error" link. Cloudflare Web Analytics enabled but needs the next Pages deployment to inject its beacon (check bornakm.ro HTML for static.cloudflareinsights.com after the next push). Cache rule, billing alert, old R2 token deleted: done.
+
 ### Resuming
 `make db-up` (PostGIS in Docker keeps all data) · `make web-dev` → http://localhost:4321.
 Full rebuild after new data: `make download import register lrs attributes qa tiles` (~10 min). Secrets live in git-ignored files: `.env` (`ERM_TOKEN`), `web/.env` (`PUBLIC_MAPTILER_KEY`).
