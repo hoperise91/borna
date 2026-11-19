@@ -45,6 +45,10 @@ FOLD_MIN_M = 1500      # ... at least this far apart along it, is running back o
 OSM_ONLY_MIN_M = 2000  # OSM-only national roads shorter than this are not added (review list)
 OSM_ONLY_CATEGORIES = ("A", "DX", "DN", "V")
 OSM_ONLY_HIGHWAYS = ("motorway", "trunk", "primary")  # national roads are mapped as these
+# Bypasses ('Centura Beclean', 'Varianta Ocolitoare Brănești') are short and sometimes mapped as
+# secondary roads: named ones need only 1 km, mapped as trunk/primary/secondary.
+OSM_ONLY_BYPASS_RE = re.compile(r"\b(centura|varianta|ocolitoare|ocolire)\b", re.IGNORECASE)
+OSM_ONLY_BYPASS_MIN_M = 1000
 OSM_ONLY_MAX_SHARED = 0.5  # a candidate mostly on ways of a register road is an alias ('DNVO1Z' on CORA)
 MILESTONE_SNAP_M = 50  # a milestone further from the path than this is ignored
 JUNCTION_SNAP_M = 150  # the road named at a route end must come this close to the path
@@ -129,8 +133,10 @@ def build_way_refs(conn) -> None:
     conn.execute("""
         -- HG 540 still lists some county roads that were transferred to the state and renumbered
         -- (DJ113 Covasna = DN11C); OSM route relations may still bundle them on the national road.
-        -- Such a duplicate gives its national-tagged ways up: when most of its official length lies
-        -- on ways tagged as one registered national road of about the same official length.
+        -- Such a county road gives its national-tagged ways up when they add up to at least half its
+        -- own official length: a duplicate (DJ113 = DN11C) or a relation that wandered onto the
+        -- national road (DJ156 Prahova, officially 6.4 km, claimed 9 km of DN72). The road page's
+        -- "now DN11C" note needs a national road of about the same length (tiles.py).
         -- Ordinary shared stretches (DJ391 along DN38) stay: they hold county routes together.
         CREATE TEMP TABLE route_claims AS
         SELECT x.osm_id, x.ref, c.county, min(n.ref) AS national,
@@ -149,9 +155,8 @@ def build_way_refs(conn) -> None:
               JOIN borna.road cr ON cr.ref = rc2.ref AND cr.county = rc2.county
               JOIN borna.road nr ON nr.ref = rc2.national AND nr.county IS NULL
                                 AND nr.source_id <> 'osm'
-              GROUP BY rc2.ref, rc2.county, rc2.national, cr.length_official, nr.length_official
+              GROUP BY rc2.ref, rc2.county, rc2.national, cr.length_official
               HAVING sum(rc2.m) >= 500 * cr.length_official
-                 AND abs(nr.length_official - cr.length_official) <= 0.25 * cr.length_official
              ) dup USING (ref, county, national);
         DELETE FROM borna.osm_way_ref x USING route_claims_dropped d
         WHERE x.osm_id = d.osm_id AND x.ref = d.ref;
@@ -597,6 +602,7 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
     candidates = conn.execute(f"""
         SELECT x.ref, min(x.category),
                sum(ST_Length(w.geom::geography)) FILTER (WHERE w.highway IN {OSM_ONLY_HIGHWAYS}),
+               sum(ST_Length(w.geom::geography)) FILTER (WHERE w.highway IN {OSM_ONLY_HIGHWAYS + ("secondary",)}),
                sum(ST_Length(w.geom::geography)),
                mode() WITHIN GROUP (ORDER BY w.highway),
                mode() WITHIN GROUP (ORDER BY w.name),
@@ -612,9 +618,11 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
         GROUP BY x.ref ORDER BY x.ref""").fetchall()
     conn.execute("DELETE FROM borna.road WHERE source_id = 'osm'")
     osm_only_report = []
-    for ref, category, main_m, all_m, highway, name, shared_m, shared_refs in candidates:
+    for ref, category, main_m, sec_m, all_m, highway, name, shared_m, shared_refs in candidates:
         alias = (shared_m or 0) > OSM_ONLY_MAX_SHARED * all_m
-        added = (main_m or 0) > OSM_ONLY_MIN_M and not alias
+        bypass = category in ("DN", "V") and bool(name and OSM_ONLY_BYPASS_RE.search(name))
+        added = not alias and ((main_m or 0) > OSM_ONLY_MIN_M
+                               or (bypass and (sec_m or 0) > OSM_ONLY_BYPASS_MIN_M))
         if added:
             # OSM names fit bypasses ('Centura Brașov') but not motorways ('Lot 1').
             route = name if category in ("DN", "V") else None
@@ -686,7 +694,7 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
         if path is None or km_from is None or km_to is None:
             results.append({"road_id": road_id, "status": "no_geometry", "official_km": official,
                                 "path_km": None, "n_border": 0, "n_milestone": 0, "orientation": "none",
-                                "km_quality": "estimated"})
+                                "km_quality": "estimated", "controls_km": None})
             continue
         km_from, km_to, plen = float(km_from), float(km_to), path.length
 
@@ -757,7 +765,9 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
                 else "partial"
         results.append({"road_id": road_id, "status": status, "official_km": official,
                             "path_km": round(mapped / 1000, 3), "n_border": n_bd, "n_milestone": n_ms,
-                            "orientation": how, "km_quality": worst})
+                            "orientation": how, "km_quality": worst,
+                            "controls_km": sorted({round(a.km, 3) for a in anchors
+                                                   if a.kind in ("border", "milestone", "junction")})})
 
     print(f"lrs: writing {len(segments):,} segments…", flush=True)
     conn.execute("TRUNCATE borna.road_segment, borna.lrs_road RESTART IDENTITY")
@@ -775,10 +785,11 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
     """)
     with conn.cursor().copy(
             "COPY borna.lrs_road (road_id, status, official_km, path_km, n_border, n_milestone, "
-            "orientation, km_quality) FROM STDIN") as copy:
+            "orientation, km_quality, controls_km) FROM STDIN") as copy:
         for r in results:
             copy.write_row([r[k] for k in ("road_id", "status", "official_km", "path_km",
-                                           "n_border", "n_milestone", "orientation", "km_quality")])
+                                           "n_border", "n_milestone", "orientation", "km_quality",
+                                           "controls_km")])
     return results, held_out
 
 

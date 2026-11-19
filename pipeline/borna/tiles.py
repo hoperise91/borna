@@ -205,10 +205,10 @@ def export_roads(conn) -> int:
 
     index = []
     for (road_id, key, ref, county, category, route, km_from, km_to, length, legal,
-         status, path_km, orientation, n_ctrl, n_ms, bbox) in conn.execute(f"""
+         status, path_km, orientation, n_ctrl, n_ms, controls_km, bbox) in conn.execute(f"""
             SELECT r.road_id, {ROAD_KEY_SQL}, r.ref, r.county, r.category, r.route_desc,
                    r.km_from_official, r.km_to_official, r.length_official, r.legal_source,
-                   l.status, l.path_km, l.orientation, l.n_border, l.n_milestone,
+                   l.status, l.path_km, l.orientation, l.n_border, l.n_milestone, l.controls_km,
                    (SELECT ARRAY[round(ST_XMin(b)::numeric, 4), round(ST_YMin(b)::numeric, 4),
                                  round(ST_XMax(b)::numeric, 4), round(ST_YMax(b)::numeric, 4)]
                     FROM (SELECT ST_Extent(geom)::geometry AS b FROM borna.road_segment s
@@ -221,7 +221,8 @@ def export_roads(conn) -> int:
             "legal_source": legal,
             "owner": owners.get((ref, county)),
             "lrs": {"status": status, "path_km": num(path_km), "orientation": orientation,
-                    "control_points": (n_ctrl or 0) + (n_ms or 0)},
+                    "control_points": (n_ctrl or 0) + (n_ms or 0),
+                    "controls": [float(k) for k in controls_km or []]},
             "bbox": [float(v) for v in bbox] if bbox else None,
             "segments": segments.get(road_id, []),
             "attributes": attrs.get(road_id, {}),

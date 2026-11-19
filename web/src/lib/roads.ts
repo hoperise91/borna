@@ -20,7 +20,7 @@ export interface Road {
   length_official: number | null;
   legal_source: string | null;
   owner?: string | null;
-  lrs: { status: string | null; path_km: number | null; control_points: number };
+  lrs: { status: string | null; path_km: number | null; control_points: number; controls?: number[] };
   bbox: [number, number, number, number] | null;
   segments: Segment[];
   attributes: Record<string, Event[]>;

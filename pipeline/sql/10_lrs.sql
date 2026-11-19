@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS lrs_road (
     km_quality    text NOT NULL        -- worst segment quality on the road
 );
 
+-- km of the control points used (county borders, milestones, junctions), for "distance to the
+-- nearest reference point" next to the km quality.
+ALTER TABLE lrs_road ADD COLUMN IF NOT EXISTS controls_km numeric[];
 ALTER TABLE lrs_road DROP CONSTRAINT IF EXISTS lrs_road_status_check;
 ALTER TABLE lrs_road ADD CONSTRAINT lrs_road_status_check
     CHECK (status IN ('ok', 'partial', 'no_geometry', 'osm_only'));

@@ -808,7 +808,8 @@ export function initMap(root: HTMLElement) {
       ${road.now_national ? `<p class="note small">${esc(s.now_national_note.replace("{ref}", road.now_national))}</p>` : ""}
       ${here ? `<div class="here"><span class="small muted">${esc(s.here)}</span>
         <span class="km">km ${formatKm(here.km)}</span>
-        <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span></div>` : ""}
+        <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span>
+        <span class="ref-dist small muted" title="${esc(s.ref_hint)}">${esc(refDistance(road, here.km))}</span></div>` : ""}
       ${outOfRange ? `<p class="msg">${esc(s.km_out_of_range)}</p>` : ""}
       ${here && shownData.size ? atPoint(road, here.km) : ""}
       <dl class="facts">
@@ -846,6 +847,17 @@ export function initMap(root: HTMLElement) {
         if (p.km != null) selectRoad(road.key, { km: p.km });
       });
     }
+  }
+
+  // How far the km is from the nearest control point (county border, km stone, junction): the
+  // km is exact there and less certain further away. Shown next to the quality label.
+  function refDistance(road: Road, km: number): string {
+    const cs = road.lrs.controls ?? [];
+    if (!cs.length) return s.no_ref;
+    const d = Math.min(...cs.map((c) => Math.abs(c - km)));
+    const locale = lang === "ro" ? "ro-RO" : "en-GB";
+    const txt = d < 1 ? `${Math.round(d * 1000 / 10) * 10} m` : `${d.toLocaleString(locale, { maximumFractionDigits: d < 10 ? 1 : 0 })} km`;
+    return s.nearest_ref.replace("{d}", txt);
   }
 
   // "Source · date" under each value (dates from sources.json; HG 540 is cited, not dated).
