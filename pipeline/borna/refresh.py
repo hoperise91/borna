@@ -16,6 +16,7 @@ import json
 import sys
 import time
 from datetime import date
+from urllib.parse import urlparse
 
 import requests
 
@@ -154,12 +155,14 @@ def check(prev: dict | None, cur: dict) -> list[str]:
 
 
 def watch(targets=WATCH) -> list[dict]:
-    """Is each awaited source answering yet? Back = HTTP 200 and not an outage page."""
+    """Is each awaited source answering yet? Back = HTTP 200 on its own host, not an outage page
+    and not a redirect elsewhere (tentec.transport.ec.europa.eu forwards to an info page)."""
     out = []
     for name, url in targets:
         try:
             r = requests.get(url, timeout=30)
-            back = r.ok and "sorry." not in r.url
+            same_host = urlparse(r.url).hostname == urlparse(url).hostname
+            back = r.ok and same_host and "sorry." not in r.url
             detail = f"HTTP {r.status_code}" + ("" if r.url.rstrip("/") == url.rstrip("/")
                                                 else f" via {r.url}")
         except requests.RequestException as e:

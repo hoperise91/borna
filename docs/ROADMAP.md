@@ -13,7 +13,7 @@
 
 ## Progress (updated 2026-11-19)
 
-**Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: check the first weekly refresh runs, then Phase 4 extras (§ "Next steps" below).
+**Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: the data-list redesign (Next steps 3), then NVDB-style batch 1 (§ "Next steps" below).
 
 | Phase / step | Status | Notes |
 |---|---|---|
@@ -38,7 +38,7 @@
 
 ### Next steps
 1. ~~Go live~~ ✅ 2026-11-19. Setup: domain bornakm.ro (registrar Nettissimo, DNS on Cloudflare); Pages project `borna` (`borna-6h1.pages.dev`; root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL`, `PUBLIC_MAPTILER_KEY`, `NODE_VERSION=24`); R2 bucket `borna-data` (EEUR) on `data.bornakm.ro`, CORS in `deploy/r2-cors.json` (paste into the dashboard when it changes); data upload `make deploy-data` (R2 keys in `.env`); MapTiler key allows bornakm.ro, www, borna-6h1.pages.dev; Cloudflare Web Analytics (cookieless). Code changes deploy on `git push`; data changes need `make tiles deploy-data`.
-2. **Weekly automated refresh** ◐ built 2026-11-19: GitHub Actions every Monday, checks before publishing, weekly note as a GitHub issue (email), "Updates" list on `/date/`, watch on offline sources. Owner asked for the email every week for now; switch to notable-only later (held back, failed, new A/DX roads). **Blocked until the owner creates the private R2 bucket `borna-raw` and adds it to the `borna-deploy` token**; then `make snapshot-raw` and a test run (Actions → Weekly refresh → Run workflow). Test runs 1–2 failed safely (Geofabrik redirect, fixed; legislatie.just.ro refuses CI → saved copies).
+2. ~~Weekly automated refresh~~ ✅ 2026-11-19: GitHub Actions every Monday 03:00 UTC; first full run published (test run 10). Checks before publishing, weekly note as a GitHub issue (email), "Updates" list on `/date/`, watch on offline sources, "waiting for official data" list of OSM-only national roads. Servers that refuse CI (Geofabrik at times, legislatie.just.ro, sometimes data.gov.ro) fall back to copies in the private bucket `borna-raw`, refreshed weekly by the Mac helper (`make fetch-install`; skips hotspots/Low Data Mode). Owner wants the email every week for now; switch to notable-only later.
 3. **Data-list redesign** (owner's design, 2026-11-19; do before batch 1 so new data types land in it):
    - Hover shows only the value of the current colouring at that spot (`90 km/h`, `asfalt`, `12 400 vehicule/zi`, `drum național`), no road name: the road label is visible elsewhere on the map.
    - The top tabs go; one compact "Colorează harta după" choice remains (only one data type colours the lines at a time).
