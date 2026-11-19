@@ -25,7 +25,7 @@ jobs:
         shell: bash -el {0}   # login shell, so the micromamba tools are on PATH
     env:
       # Overture is not used after import (only for exploration), so the weekly run skips it.
-      SOURCES: osm hg540 gisco ins_trn139a aadt_end
+      SOURCES: osm hg540 gisco ins_trn139a aadt_end   # what `make import` loads
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +40,20 @@ jobs:
         run: make db-up
 
       - name: Download and import public sources
-        run: make download import
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          # OSM changes daily and must be fresh. The other sources change a few times a year and
+          # some servers refuse CI machines (legislatie.just.ro): use the saved copy from the
+          # private bucket then (`make snapshot-raw` on the owner's machine), and say so in the note.
+          make download SOURCES=osm
+          mkdir -p data/out/refresh
+          for s in hg540 gisco ins_trn139a aadt_end; do
+            make download SOURCES=$s || { make restore-raw S=$s && echo $s >> data/out/refresh/fallbacks; }
+          done
+          make import
 
       - name: Build the network
         run: make register lrs attributes qa tiles

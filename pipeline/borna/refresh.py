@@ -161,12 +161,25 @@ def watch(targets=WATCH) -> list[dict]:
     return out
 
 
+def fallbacks(out=None) -> list[dict]:
+    """Sources whose server did not answer this week, so their saved copy was used."""
+    from borna import sources as src
+    f = (out or OUT) / "fallbacks"
+    if not f.exists():
+        return []
+    out_list = []
+    for sid in f.read_text().split():
+        m = src.read_manifest(sid)
+        out_list.append({"id": sid, "version": m.get("version"), "retrieved": (m.get("retrieved_at") or "?")[:10]})
+    return out_list
+
+
 def _km(x: float) -> str:
     return f"{x:,.1f} km"
 
 
 def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
-           waiting: list[dict] = ()) -> str:
+           waiting: list[dict] = (), saved: list[dict] = ()) -> str:
     """The weekly note (Markdown, English: it goes to the maintainer)."""
     held = bool(problems)
     lines = [(f"**{'Held back' if held else 'Published'}**: OpenStreetMap data from "
@@ -204,6 +217,12 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
               f"{acc.get('within_50m_share', 0):.1%} within 50 m")]
     km = _km_by_cat(cur)
     lines.append("- Mapped length: " + " · ".join(f"{c} {_km(km.get(c, 0))}" for c in NATIONAL))
+    if saved:
+        lines += ["", "### Saved copies used",
+                  ("These servers did not answer the CI machine, so last saved copies were used. "
+                  "To refresh them, run `make download snapshot-raw` on your Mac.")]
+        for f in saved:
+            lines.append(f"- {f['id']}: version {f['version']}, saved {f['retrieved']}")
     if waiting:
         lines += ["", "### Waiting on"]
         for w in waiting:
@@ -250,7 +269,7 @@ def main(argv: list[str]) -> int:
     problems = check(prev, cur)
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "report.md").write_text(report(cur, changes, problems, args.run_url, watch()),
+    (OUT / "report.md").write_text(report(cur, changes, problems, args.run_url, watch(), fallbacks()),
                                    encoding="utf-8")
     (OUT / "status").write_text("held\n" if problems else "published\n")
     print((OUT / "report.md").read_text())

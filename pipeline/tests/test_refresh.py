@@ -83,3 +83,15 @@ def test_waiting_sources_are_listed_but_never_hold_back():
     assert text.startswith("**Published**")
     assert "TENtec](https://t.example): still down (HTTP 503)" in text
     assert "ANCPI](https://a.example): **back online**" in text
+
+
+def test_saved_copies_are_named_in_the_note(tmp_path, monkeypatch):
+    from borna import sources
+    monkeypatch.setattr(sources, "DATA_RAW", tmp_path / "raw")
+    sources.write_manifest("hg540", name="HG 540", url="u", licence="public", attribution="a",
+                           version="2026-09-08", files=["anexe.html"])
+    (tmp_path / "fallbacks").write_text("hg540\n")
+    saved = refresh.fallbacks(tmp_path)
+    assert saved[0]["id"] == "hg540" and saved[0]["version"] == "2026-09-08"
+    text = refresh.report(PREV, refresh.compare(None, PREV), [], None, (), saved)
+    assert "### Saved copies used" in text and "hg540: version 2026-09-08" in text
