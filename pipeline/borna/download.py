@@ -12,6 +12,8 @@ from email.utils import parsedate_to_datetime
 
 import duckdb
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from borna import sources
 from borna.config import RO_BBOX
@@ -29,6 +31,15 @@ DATA_GOV_RO = "https://data.gov.ro/api/3/action/"
 AADT_END_DATASET = "drumurile-principale-din-romania-din-afara-aglomerarilor-art-7-din-directiva-2002-49-ce"
 
 
+# One session for every source: retries with backoff ride out brief network or server hiccups
+# (public servers, CI runners), instead of failing the whole weekly run.
+http = requests.Session()
+http.mount("https://", HTTPAdapter(max_retries=Retry(
+    total=5, backoff_factor=10, status_forcelist=(429, 500, 502, 503, 504))))
+http.mount("http://", HTTPAdapter(max_retries=Retry(
+    total=5, backoff_factor=10, status_forcelist=(429, 500, 502, 503, 504))))
+
+
 def _md5(path) -> str:
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -39,14 +50,21 @@ def _md5(path) -> str:
 
 def download_osm() -> None:
     out = sources.raw_dir("osm") / "romania-latest.osm.pbf"
-    remote_md5 = requests.get(GEOFABRIK_URL + ".md5", timeout=30).text.split()[0]
+    # Geofabrik redirects "latest" to the dated extract (romania-261118.osm.pbf); only the dated
+    # file has an .md5 next to it, so resolve the redirect first.
+    head = http.head(GEOFABRIK_URL, allow_redirects=False, timeout=30)
+    url = requests.compat.urljoin(GEOFABRIK_URL, head.headers["Location"]) \
+        if head.is_redirect else GEOFABRIK_URL
+    md5 = http.get(url + ".md5", timeout=30)
+    md5.raise_for_status()
+    remote_md5 = md5.text.split()[0]
     current = sources.read_manifest("osm")
     if sources.files_present(current) and current.get("md5") == remote_md5:
         print(f"osm: up to date ({current['version']})")
         return
 
     tmp = out.with_suffix(".part")
-    with requests.get(GEOFABRIK_URL, stream=True, timeout=60) as r:
+    with http.get(url, stream=True, timeout=60) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length", 0))
         data_date = parsedate_to_datetime(r.headers["Last-Modified"]).date().isoformat()
@@ -77,7 +95,7 @@ def download_osm() -> None:
 
 
 def download_overture() -> None:
-    release = requests.get(OVERTURE_STAC, timeout=30).json()["latest"]
+    release = http.get(OVERTURE_STAC, timeout=30).json()["latest"]
     current = sources.read_manifest("overture")
     if sources.files_present(current) and current["version"] == release:
         print(f"overture: up to date ({release})")
@@ -120,7 +138,7 @@ def download_overture() -> None:
 
 
 def _legis_get(path: str) -> str:
-    r = requests.get(LEGIS + path, headers={"User-Agent": "borna-pipeline"}, timeout=300)
+    r = http.get(LEGIS + path, headers={"User-Agent": "borna-pipeline"}, timeout=300)
     r.raise_for_status()
     return r.text
 
@@ -164,7 +182,7 @@ def download_hg540() -> None:
 
 def _fetch_file(url: str, out) -> None:
     tmp = out.with_suffix(out.suffix + ".part")
-    with requests.get(url, stream=True, timeout=120) as r:
+    with http.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         with open(tmp, "wb") as f:
             f.writelines(r.iter_content(1 << 20))
@@ -176,7 +194,7 @@ def download_gisco() -> None:
     # selected at import).
     releases = {}
     for theme in ("nuts", "lau"):
-        datasets = requests.get(f"{GISCO}{theme}/datasets.json", timeout=30).json()
+        datasets = http.get(f"{GISCO}{theme}/datasets.json", timeout=30).json()
         releases[theme] = max(datasets).split("-")[1]  # 'nuts-2024' -> '2024'
     version = f"NUTS {releases['nuts']}, LAU {releases['lau']}"
     current = sources.read_manifest("gisco")
@@ -205,7 +223,7 @@ def download_gisco() -> None:
 
 def download_ins_trn139a() -> None:
     # INS Tempo Online TRN139A: public road length by category, surface and county, all years.
-    matrix = requests.get(f"{TEMPO}matrix/TRN139A", timeout=60).json()
+    matrix = http.get(f"{TEMPO}matrix/TRN139A", timeout=60).json()
     version = matrix["ultimaActualizare"]  # last update, DD-MM-YYYY
     current = sources.read_manifest("ins_trn139a")
     if sources.files_present(current) and current["version"] == version:
@@ -239,7 +257,7 @@ def download_ins_trn139a() -> None:
 
 
 def download_aadt_end() -> None:
-    pkg = requests.get(f"{DATA_GOV_RO}package_show", params={"id": AADT_END_DATASET},
+    pkg = http.get(f"{DATA_GOV_RO}package_show", params={"id": AADT_END_DATASET},
                        timeout=60).json()["result"]
     res = next(r for r in pkg["resources"] if (r.get("format") or "").lower() == "gpkg")
     version = (res.get("last_modified") or res.get("created") or pkg["metadata_modified"])[:10]
