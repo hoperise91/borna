@@ -69,7 +69,17 @@ def test_main_writes_summary_and_history_only_when_published(tmp_path, monkeypat
     summarize = refresh.summarize
     monkeypatch.setattr(refresh, "summarize", lambda: summarize(web, tmp_path / "lrs"))
     monkeypatch.setattr(refresh, "_fetch_json", lambda url: None)
+    monkeypatch.setattr(refresh, "watch", list)
     assert refresh.main([]) == 0
     assert json.loads((web / "changes.json").read_text())[0]["baseline"] is True
     assert "DN1" in json.loads((web / "meta" / "summary.json").read_text())["roads"]
     assert (tmp_path / "out" / "status").read_text() == "published\n"
+
+
+def test_waiting_sources_are_listed_but_never_hold_back():
+    waiting = [{"name": "TENtec", "url": "https://t.example", "back": False, "detail": "HTTP 503"},
+               {"name": "ANCPI", "url": "https://a.example", "back": True, "detail": "HTTP 200"}]
+    text = refresh.report(PREV, refresh.compare(None, PREV), [], None, waiting)
+    assert text.startswith("**Published**")
+    assert "TENtec](https://t.example): still down (HTTP 503)" in text
+    assert "ANCPI](https://a.example): **back online**" in text

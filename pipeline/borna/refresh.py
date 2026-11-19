@@ -36,6 +36,12 @@ MAIN_ROAD_DROP_KM = 5          # an A/DX road losing more than 5 km and 10% is s
 MAIN_ROAD_DROP_SHARE = 0.10
 NOTABLE_KM = 1.0               # A/DX/DN length changes reported in the note
 MAIN = ("A", "DX")
+# Public sources that were offline; each weekly note says whether they are back. Information
+# only: never holds a run back. Remove an entry once its source is used.
+WATCH = (
+    ("TENtec (EU TEN-T network)", "https://tentec.transport.ec.europa.eu/"),
+    ("ANCPI geoportal (0.5 m orthophoto)", "https://geoportal.ancpi.ro/"),
+)
 NATIONAL = ("A", "DX", "DN")
 
 
@@ -140,11 +146,27 @@ def check(prev: dict | None, cur: dict) -> list[str]:
     return problems
 
 
+def watch(targets=WATCH) -> list[dict]:
+    """Is each awaited source answering yet? Back = HTTP 200 and not an outage page."""
+    out = []
+    for name, url in targets:
+        try:
+            r = requests.get(url, timeout=30)
+            back = r.ok and "sorry." not in r.url
+            detail = f"HTTP {r.status_code}" + ("" if r.url.rstrip("/") == url.rstrip("/")
+                                                else f" via {r.url}")
+        except requests.RequestException as e:
+            back, detail = False, type(e).__name__
+        out.append({"name": name, "url": url, "back": back, "detail": detail})
+    return out
+
+
 def _km(x: float) -> str:
     return f"{x:,.1f} km"
 
 
-def report(cur: dict, changes: dict, problems: list[str], run_url: str | None) -> str:
+def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
+           waiting: list[dict] = ()) -> str:
     """The weekly note (Markdown, English: it goes to the maintainer)."""
     held = bool(problems)
     lines = [(f"**{'Held back' if held else 'Published'}**: OpenStreetMap data from "
@@ -182,6 +204,11 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None) -
               f"{acc.get('within_50m_share', 0):.1%} within 50 m")]
     km = _km_by_cat(cur)
     lines.append("- Mapped length: " + " · ".join(f"{c} {_km(km.get(c, 0))}" for c in NATIONAL))
+    if waiting:
+        lines += ["", "### Waiting on"]
+        for w in waiting:
+            state = "**back online**: worth a look" if w["back"] else "still down"
+            lines.append(f"- [{w['name']}]({w['url']}): {state} ({w['detail']})")
     if run_url:
         lines += ["", f"[Run log]({run_url})"]
     return "\n".join(lines) + "\n"
@@ -223,7 +250,8 @@ def main(argv: list[str]) -> int:
     problems = check(prev, cur)
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "report.md").write_text(report(cur, changes, problems, args.run_url), encoding="utf-8")
+    (OUT / "report.md").write_text(report(cur, changes, problems, args.run_url, watch()),
+                                   encoding="utf-8")
     (OUT / "status").write_text("held\n" if problems else "published\n")
     print((OUT / "report.md").read_text())
     if problems:
