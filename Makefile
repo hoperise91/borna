@@ -17,7 +17,7 @@ RUN  := cd pipeline && ../$(PY) -m
 SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build deploy-data test
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build refresh deploy-data test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -77,6 +77,9 @@ web-dev: ## Phase 3: run the site locally at http://localhost:4321 (after make t
 
 web-build: ## Phase 3: build the static site into web/dist/
 	cd web && npm install && npm run build
+
+refresh: setup ## Phase 4.1: compare the new export with the live one, run the checks, write the weekly note
+	$(RUN) borna.refresh $(ARGS)
 
 R2_BUCKET ?= borna-data
 deploy-data: ## Phase 3.5: sync web/public/data/ to Cloudflare R2 (needs R2_* in .env, rclone)
