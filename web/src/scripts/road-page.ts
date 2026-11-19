@@ -16,6 +16,8 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.cha
 const ATTR_ORDER = ["surface", "lanes", "maxspeed", "aadt", "width", "bridge", "tunnel"];
 
 export async function initRoadPage(root: HTMLElement) {
+  // Precision details are for the maintainer only (?detalii=1 on the map turns them on).
+  const details = (() => { try { return localStorage.getItem("borna.details") === "1"; } catch { return false; } })();
   const s: Strings = JSON.parse(root.dataset.strings!);
   const lang = root.dataset.lang!;
   const mapUrl = root.dataset.mapUrl!;
@@ -56,8 +58,8 @@ export async function initRoadPage(root: HTMLElement) {
         <dl class="rp-facts">
           <dt>${esc(s.official_length)}</dt><dd>${formatLength(road.length_official, lang)}</dd>
           <dt>${esc(s.official_km)}</dt><dd class="mono">${formatKm(road.km_from)} – ${formatKm(road.km_to)}</dd>
-          <dt>${esc(s.on_map)}</dt><dd>${onMap ? `${formatLength(road.lrs.path_km, lang)}<br><span class="small muted">${esc(statusText)}</span>` : esc(s.not_on_map)}</dd>
-          ${onMap ? `<dt>${esc(s.km_quality)}</dt><dd>${(["calibrated", "interpolated", "estimated"] as Quality[])
+          ${details ? `<dt>${esc(s.on_map)}</dt><dd>${onMap ? `${formatLength(road.lrs.path_km, lang)}<br><span class="small muted">${esc(statusText)}</span>` : esc(s.not_on_map)}</dd>` : ""}
+          ${onMap && details ? `<dt>${esc(s.km_quality)}</dt><dd>${(["calibrated", "interpolated", "estimated"] as Quality[])
             .filter((q) => shares[q] > 0.005)
             .map((q) => `<span class="q" data-q="${q}">${Math.round(shares[q] * 100)}% ${esc(S[`q_${q}`])}</span>`).join("<br>")}</dd>` : ""}
           <dt>${esc(s.legal_source)}</dt><dd class="small">${esc(road.legal_source ?? (road.lrs.status === "osm_only" ? "—" : ""))}${hg?.url ? ` · <a href="${esc(hg.url)}" rel="noopener">legislatie.just.ro</a>` : ""}</dd>
@@ -94,7 +96,7 @@ export async function initRoadPage(root: HTMLElement) {
   `;
 
   if (!onMap) return;
-  liveStrip(root.querySelector<HTMLElement>("#rp-strip")!, road, s);
+  liveStrip(root.querySelector<HTMLElement>("#rp-strip")!, road, s, { hide: details ? [] : ["quality"] });
   root.querySelector("#rp-goto")!.addEventListener("submit", (e) => {
     e.preventDefault();
     const v = (e.currentTarget as HTMLFormElement).querySelector("input")!.value;

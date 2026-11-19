@@ -66,11 +66,11 @@ export function bands(road: Road, s: Strings): Band[] {
 }
 
 /** Render the diagram into `el`. `compact` drops the label column and shows fewer bands. */
-export interface StripOpts { compact?: boolean; only?: string[] }
+export interface StripOpts { compact?: boolean; only?: string[]; hide?: string[] }
 
 /** Bands shown: all, or (compact) the given data types, else surface, lanes and speed. */
 export function stripBands(road: Road, s: Strings, opts: StripOpts = {}): Band[] {
-  const list = bands(road, s);
+  const list = bands(road, s).filter((b) => !(opts.hide ?? []).includes(b.id));
   if (!opts.compact) return list;
   const only = opts.only ?? ["surface", "lanes", "maxspeed"];
   return list.filter((b) => only.includes(b.id));

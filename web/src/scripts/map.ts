@@ -202,6 +202,11 @@ export function initMap(root: HTMLElement) {
   };
   let showLabels = stored("borna.labels") !== "0";
   let showConstruction = stored("borna.construction") !== "0";
+  // Precision details (km quality, reference points, mapped length) are for the maintainer only:
+  // ?detalii=1 turns them on in this browser (remembered), ?detalii=0 off.
+  const detailsParam = new URLSearchParams(location.search).get("detalii");
+  if (detailsParam != null) store("borna.details", detailsParam === "1" ? "1" : "0");
+  const details = stored("borna.details") === "1";
   // Data types shown in the road panel (ticked in the data list).
   // v2: E-roads and point objects added; older saved choices didn't know them
   let shownData = new Set<DataId>(JSON.parse(stored("borna.data.v2") ?? "null") ?? DEFAULT_DATA);
@@ -338,26 +343,89 @@ export function initMap(root: HTMLElement) {
   }
 
   // hover (layer-scoped listeners survive style changes)
-  map.on("mousemove", "objects", (e) => {
-    const f = e.features?.[0];
-    if (!f) return;
-    map.getCanvas().style.cursor = "pointer";
-    hoverPopup.setLngLat(e.lngLat).setHTML(`<span class="hv">${esc(objectLabel(
-      f.properties.y, f.properties.n, f.properties.x))}</span>`).addTo(map);
+  // Snapping cursor: near a road (SNAP_PX) the cursor becomes a ring on the nearest point of the
+  // road, and hover value, highlight and click all use that point: easier than aiming a hand.
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  const SNAP_PX = coarse ? 18 : 12;
+  type Snap = { f: maplibregl.MapGeoJSONFeature; pt: maplibregl.Point; lngLat: maplibregl.LngLat; d: number };
+  const around = (p: maplibregl.Point, r: number): [maplibregl.PointLike, maplibregl.PointLike] =>
+    [[p.x - r, p.y - r], [p.x + r, p.y + r]];
+  function snapTo(p: maplibregl.Point, r = SNAP_PX): Snap | null {
+    if (!map.getLayer("roads")) return null;
+    let best: Snap | null = null;
+    const rank = (f: maplibregl.MapGeoJSONFeature) => CATEGORY_ORDER.indexOf(f.properties.t);
+    for (const f of map.queryRenderedFeatures(around(p, r), { layers: ["roads"] })) {
+      const g = f.geometry;
+      const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
+      for (const line of lines) {
+        let a = map.project(line[0] as LngLatLike);
+        for (let i = 1; i < line.length; i++) {
+          const b = map.project(line[i] as LngLatLike);
+          const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+          const t = len2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+          const q = new maplibregl.Point(a.x + t * dx, a.y + t * dy);
+          const d = q.dist(p);
+          // nearest wins; within 1.5 px of each other the more important road wins (junctions)
+          if (!best || d < best.d - 1.5 || (d <= best.d + 1.5 && rank(f) < rank(best.f))) {
+            best = { f, pt: q, lngLat: map.unproject(q), d };
+          }
+          a = b;
+        }
+      }
+    }
+    return best && best.d <= r ? best : null;
+  }
+  const ringEl = document.createElement("div");
+  ringEl.className = "snap-ring";
+  const snapRing = new maplibregl.Marker({ element: ringEl });
+  function clearHover() {
+    hoverKey = "";
+    if (map.getLayer("road-hover")) map.setFilter("road-hover", ["==", ["get", "k"], ""]);
+    hoverPopup.remove();
+    snapRing.remove();
+    map.getCanvas().style.cursor = "";
+  }
+  function onHover(p: maplibregl.Point) {
+    if (!map.getLayer("roads")) return;
+    const obj = map.getLayer("objects") ? map.queryRenderedFeatures(around(p, 6), { layers: ["objects"] })[0] : undefined;
+    if (obj) { // an object dot under the cursor comes first
+      clearHover();
+      map.getCanvas().style.cursor = "pointer";
+      hoverPopup.setLngLat(map.unproject(p)).setHTML(`<span class="hv">${esc(objectLabel(
+        obj.properties.y, obj.properties.n, obj.properties.x))}</span>`).addTo(map);
+      return;
+    }
+    const sn = snapTo(p);
+    if (sn) {
+      map.getCanvas().style.cursor = "none";
+      snapRing.setLngLat(sn.lngLat).addTo(map);
+      hoverKey = sn.f.properties.k as string;
+      map.setFilter("road-hover", ["==", ["get", "k"], hoverKey]);
+      const v = hoverValue(sn.pt, sn.f.properties.t as string);
+      hoverPopup.setLngLat(sn.lngLat)
+        .setHTML(v ? `<span class="hv">${esc(v)}</span>` : `<span class="hv muted">${esc(s.unknown)}</span>`)
+        .addTo(map);
+      return;
+    }
+    const con = map.getLayer("construction") ? map.queryRenderedFeatures(around(p, 4), { layers: ["construction"] })[0] : undefined;
+    if (con) {
+      clearHover();
+      const o = con.properties.o ? ` · ${esc(s.opening)} ${esc(con.properties.o)}` : "";
+      hoverPopup.setLngLat(map.unproject(p))
+        .setHTML(`<span class="hv">${esc(s.under_construction)}${o}</span>`).addTo(map);
+      return;
+    }
+    clearHover();
+  }
+  let hoverFrame = 0;
+  let hoverAt: maplibregl.Point | null = null;
+  map.on("mousemove", (e) => {
+    if ((e.originalEvent as MouseEvent).buttons) { clearHover(); return; } // panning
+    hoverAt = e.point;
+    if (!hoverFrame) hoverFrame = requestAnimationFrame(() => { hoverFrame = 0; if (hoverAt) onHover(hoverAt); });
   });
-  map.on("mouseleave", "objects", () => { if (!hoverKey) { hoverPopup.remove(); map.getCanvas().style.cursor = ""; } });
-  map.on("mousemove", "roads", (e) => {
-    const f = e.features?.[0];
-    if (!f) return;
-    if (map.getLayer("objects") && map.queryRenderedFeatures(e.point, { layers: ["objects"] }).length) return;
-    map.getCanvas().style.cursor = "pointer";
-    hoverKey = f.properties.k as string;
-    map.setFilter("road-hover", ["==", ["get", "k"], hoverKey]);
-    const v = hoverValue(e.point, f.properties.t as string);
-    hoverPopup.setLngLat(e.lngLat)
-      .setHTML(v ? `<span class="hv">${esc(v)}</span>` : `<span class="hv muted">${esc(s.unknown)}</span>`)
-      .addTo(map);
-  });
+  map.getCanvasContainer().addEventListener("mouseleave", () => { hoverAt = null; clearHover(); });
+  map.on("movestart", () => snapRing.remove());
   // Hover shows only the value the map is coloured by at that spot, not the road's name: its label
   // is on the map anyway (owner's choice). Values come from the tiles' attribute layers.
   function hoverValue(pt: maplibregl.Point, t: string): string | null {
@@ -381,39 +449,22 @@ export function initMap(root: HTMLElement) {
     }
     return null;
   }
-  map.on("mousemove", "construction", (e) => {
-    const f = e.features?.[0];
-    if (!f || map.queryRenderedFeatures(e.point, { layers: ["roads"] }).length) return;
-    const o = f.properties.o ? ` · ${esc(s.opening)} ${esc(f.properties.o)}` : "";
-    hoverPopup.setLngLat(e.lngLat)
-      .setHTML(`<span class="hv">${esc(s.under_construction)}${o}</span>`)
-      .addTo(map);
-  });
-  map.on("mouseleave", "construction", () => { if (!hoverKey) hoverPopup.remove(); });
-  map.on("mouseleave", "roads", () => {
-    map.getCanvas().style.cursor = "";
-    hoverKey = "";
-    map.setFilter("road-hover", ["==", ["get", "k"], ""]);
-    hoverPopup.remove();
-  });
-  // click: the most important road under the pointer
+  // click: the road the cursor snaps to (an object dot first), at the snapped point
   map.on("click", (e) => {
     if (!map.getLayer("roads")) return;
-    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
-    const obj = map.getLayer("objects") ? map.queryRenderedFeatures(box, { layers: ["objects"] })[0] : undefined;
+    const obj = map.getLayer("objects") ? map.queryRenderedFeatures(around(e.point, 6), { layers: ["objects"] })[0] : undefined;
     if (obj) { // an object opens its road at its km
       hoverPopup.remove();
       selectRoad(obj.properties.k as string, { km: Number(obj.properties.m), push: true });
       return;
     }
-    const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
-    if (!feats.length) { // empty map: deselect
+    const sn = snapTo(e.point);
+    if (!sn) { // empty map: deselect
       if (current.kind === "road") back(true); else if (selected) clearSelection();
       return;
     }
-    feats.sort((a, b) => CATEGORY_ORDER.indexOf(a.properties.t) - CATEGORY_ORDER.indexOf(b.properties.t));
     hoverPopup.remove();
-    selectRoad(feats[0].properties.k as string, { at: [e.lngLat.lng, e.lngLat.lat], push: true });
+    selectRoad(sn.f.properties.k as string, { at: [sn.lngLat.lng, sn.lngLat.lat], push: true });
   });
   map.once("load", () => {
     root.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
@@ -808,15 +859,15 @@ export function initMap(root: HTMLElement) {
       ${road.now_national ? `<p class="note small">${esc(s.now_national_note.replace("{ref}", road.now_national))}</p>` : ""}
       ${here ? `<div class="here"><span class="small muted">${esc(s.here)}</span>
         <span class="km">km ${formatKm(here.km)}</span>
-        <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span>
-        <span class="ref-dist small muted" title="${esc(s.ref_hint)}">${esc(refDistance(road, here.km))}</span></div>` : ""}
+        ${details ? `<span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span>
+        <span class="ref-dist small muted" title="${esc(s.ref_hint)}">${esc(refDistance(road, here.km))}</span>` : ""}</div>` : ""}
       ${outOfRange ? `<p class="msg">${esc(s.km_out_of_range)}</p>` : ""}
       ${here && shownData.size ? atPoint(road, here.km) : ""}
       <dl class="facts">
         <dt>${esc(s.official_length)}</dt><dd>${formatLength(road.length_official, lang)}</dd>
         <dt>${esc(s.official_km)}</dt><dd class="mono">${formatKm(road.km_from)} – ${formatKm(road.km_to)}</dd>
-        <dt>${esc(s.on_map)}</dt><dd>${onMap ? `${formatLength(road.lrs.path_km, lang)} · <span class="muted">${esc(statusText)}</span>` : esc(s.not_on_map)}</dd>
-        ${onMap ? `<dt>${esc(s.km_quality)}</dt><dd>${Math.round(shares.calibrated * 100)}% ${esc(qual("calibrated"))}
+        ${details ? `<dt>${esc(s.on_map)}</dt><dd>${onMap ? `${formatLength(road.lrs.path_km, lang)} · <span class="muted">${esc(statusText)}</span>` : esc(s.not_on_map)}</dd>` : ""}
+        ${onMap && details ? `<dt>${esc(s.km_quality)}</dt><dd>${Math.round(shares.calibrated * 100)}% ${esc(qual("calibrated"))}
           <div class="qbar">${(["calibrated", "interpolated", "estimated"] as Quality[]).map((q) =>
             `<span style="width:${shares[q] * 100}%;background:${QUALITY_COLOR[q]}"></span>`).join("")}</div></dd>` : ""}
         <dt>${esc(s.administrator)}</dt><dd>${esc((s as Record<string, string>)[`owner_${OWNER_OF[road.category] ?? "private"}`])}${road.owner ? ` · ${esc(road.owner)}` : ""}</dd>
@@ -861,11 +912,11 @@ export function initMap(root: HTMLElement) {
   }
 
   // "Source · date" under each value (dates from sources.json; HG 540 is cited, not dated).
-  function srcTag(id: string): string {
+  function srcText(id: string): string {
     const v = sourceVersion[id];
     const date = v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split("-").reverse().join(".") : v;
     const name = id === "osm" ? "OpenStreetMap" : id === "aadt_end" ? "MMAP, data.gov.ro" : id === "hg540" ? "HG 540/2000" : id;
-    return `<span class="src-tag">${esc(name)}${date && id !== "hg540" ? ` · ${esc(date)}` : ""}</span>`;
+    return `${name}${date && id !== "hg540" ? ` · ${date}` : ""}`;
   }
 
   // The ticked data types at one km of the road: value, source and date (the data list's purpose).
@@ -926,9 +977,9 @@ export function initMap(root: HTMLElement) {
       .sort((a, b) => Math.abs(a[0] - km) - Math.abs(b[0] - km)).slice(0, 6);
     return `<h3 class="at-point-h">${esc(s.at_point)}</h3>
       <dl class="facts at-point">${rows.map(([l, v, src]) =>
-        `<dt>${esc(l)}</dt><dd>${esc(v)}${src ? srcTag(src) : ""}</dd>`).join("")}
+        `<dt>${esc(l)}</dt><dd${src ? ` title="${esc(s.sources)}: ${esc(srcText(src))}"` : ""}>${esc(v)}</dd>`).join("")}
       ${near.length ? `<dt>${esc(s.nearby)}</dt><dd>${near.map(([k, t, n, r]) =>
-        `<button type="button" class="near" data-km="${k}"><span class="dot" style="background:${OBJECT_COLOR[t as keyof typeof OBJECT_COLOR]}"></span><span><span class="mono small muted">km ${formatKm(k)}</span> ${esc(objectLabel(t, n, r))}</span></button>`).join("")}${srcTag("osm")}</dd>` : ""}</dl>`;
+        `<button type="button" class="near" data-km="${k}"><span class="dot" style="background:${OBJECT_COLOR[t as keyof typeof OBJECT_COLOR]}"></span><span><span class="mono small muted">km ${formatKm(k)}</span> ${esc(objectLabel(t, n, r))}</span></button>`).join("")}</dd>` : ""}</dl>`;
   }
 
   function countyAtKm(road: Road, km: number | undefined): string | null {
