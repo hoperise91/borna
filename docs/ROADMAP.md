@@ -40,7 +40,7 @@
 1. ~~Go live~~ ✅ 2026-11-19. Setup: domain bornakm.ro (registrar Nettissimo, DNS on Cloudflare); Pages project `borna` (`borna-6h1.pages.dev`; root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL`, `PUBLIC_MAPTILER_KEY`, `NODE_VERSION=24`); R2 bucket `borna-data` (EEUR) on `data.bornakm.ro`, CORS in `deploy/r2-cors.json` (paste into the dashboard when it changes); data upload `make deploy-data` (R2 keys in `.env`); MapTiler key allows bornakm.ro, www, borna-6h1.pages.dev; Cloudflare Web Analytics (cookieless). Code changes deploy on `git push`; data changes need `make tiles deploy-data`.
 2. **Weekly automated refresh** ◐ built 2026-11-19: GitHub Actions every Monday, checks before publishing, weekly note as a GitHub issue (email), "Updates" list on `/date/`. Owner asked for the email every week for now; switch to notable-only later (held back, failed, new A/DX roads).
 3. Bridges/tunnels as point objects, Mapillary speed limits, DN roads missing from HG 540, "report an error" link (Phase 4).
-4. Waiting on others: ANCPI orthophoto (0.5 m) when geoportal.ancpi.ro is back; TENtec when the EC server is back; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
+4. Waiting on others (rechecked 2026-11-19: still down): ANCPI orthophoto (0.5 m), geoportal.ancpi.ro has no DNS record at all, so the service may have moved; TENtec, tentec.transport.ec.europa.eu answers 503 → EC "server temporarily unavailable" page; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
 
 ### Resuming
 `make db-up` (PostGIS in Docker keeps all data) · `make web-dev` → http://localhost:4321.
