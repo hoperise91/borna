@@ -35,6 +35,7 @@ CATEGORY_KM_DROP = 0.02        # mapped km per category (A, DX, DN) may fall at 
 MAIN_ROAD_DROP_KM = 5          # an A/DX road losing more than 5 km and 10% is suspicious
 MAIN_ROAD_DROP_SHARE = 0.10
 NOTABLE_KM = 1.0               # A/DX/DN length changes reported in the note
+REGISTER_STALE_DAYS = 45       # nudge to refresh the saved HG 540 copy after this long
 MAIN = ("A", "DX")
 # Public sources that were offline; each weekly note says whether they are back. Information
 # only: never holds a run back. Remove an entry once its source is used.
@@ -97,7 +98,11 @@ def compare(prev: dict | None, cur: dict) -> dict:
         if b["cat"] in NATIONAL and abs(b["km"] - a["km"]) >= NOTABLE_KM:
             length.append({"key": k, "from": a["km"], "to": b["km"]})
     status = [{"key": k, "from": old[k]["status"], "to": roads[k]["status"]}
-              for k in changed if old[k]["status"] != roads[k]["status"]]
+              for k in changed if old[k]["status"] != roads[k]["status"]
+              and "osm_only" not in (old[k]["status"], roads[k]["status"])]
+    # Roads taken from OSM because HG 540 lacked them, now in the register: official km from now on.
+    official = sorted(k for k in set(roads) & set(old)
+                      if old[k]["status"] == "osm_only" and roads[k]["status"] != "osm_only")
     sources = {k: {"from": prev["sources"].get(k), "to": v}
                for k, v in cur["sources"].items() if prev["sources"].get(k) != v}
     for k in set(prev["sources"]) - set(cur["sources"]):
@@ -107,6 +112,7 @@ def compare(prev: dict | None, cur: dict) -> dict:
         "added": [{"key": k, "cat": roads[k]["cat"], "km": roads[k]["km"]} for k in added],
         "removed": [{"key": k, "cat": old[k]["cat"]} for k in removed],
         "changed": len(changed), "length": length, "status": status, "sources": sources,
+        "official": official,
     }
 
 
@@ -201,6 +207,8 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
         for r in changes["length"]:
             d = r["to"] - r["from"]
             lines.append(f"- {r['key']}: {_km(r['from'])} → {_km(r['to'])} ({d:+.1f} km)")
+        for k in changes["official"]:
+            lines.append(f"- **{k} is now in HG 540/2000**: official km replace the OSM estimate")
         for r in changes["status"]:
             lines.append(f"- {r['key']}: network status {r['from']} → {r['to']}")
         for k, v in sorted(changes["sources"].items()):
@@ -217,6 +225,17 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
               f"{acc.get('within_50m_share', 0):.1%} within 50 m")]
     km = _km_by_cat(cur)
     lines.append("- Mapped length: " + " · ".join(f"{c} {_km(km.get(c, 0))}" for c in NATIONAL))
+    osm_only = sorted(k for k, r in cur["roads"].items() if r["status"] == "osm_only")
+    if osm_only:
+        lines += ["", "### Waiting for official data",
+                  (f"{len(osm_only)} national roads are open in OpenStreetMap but not in HG 540/2000 "
+                   f"(consolidation {cur['sources'].get('hg540', '?')}), so they are shown with "
+                   "estimated km: " + ", ".join(osm_only) + ".")]
+        reg = next((f for f in saved if f["id"] == "hg540"), None)
+        if reg and reg["retrieved"] != "?" and \
+                (date.today() - date.fromisoformat(reg["retrieved"])).days > REGISTER_STALE_DAYS:
+            lines.append(f"The saved HG 540 copy is from {reg['retrieved']}: run "
+                         "`make download SOURCES=hg540 snapshot-raw` on your Mac to look for amendments.")
     if saved:
         lines += ["", "### Saved copies used",
                   ("These servers did not answer the CI machine, so last saved copies were used. "
@@ -243,6 +262,7 @@ def history_entry(cur: dict, changes: dict) -> dict:
         "added": [r["key"] for r in changes["added"]],
         "removed": [r["key"] for r in changes["removed"]],
         "length": changes["length"], "changed": changes["changed"],
+        "official": changes["official"],
         "sources": {k: v["to"] for k, v in changes["sources"].items()},
     }
 
@@ -278,7 +298,8 @@ def main(argv: list[str]) -> int:
 
     (WEB_DATA / "meta").mkdir(exist_ok=True)
     (WEB_DATA / "meta" / "summary.json").write_text(json.dumps(cur, separators=(",", ":")))
-    history = [h for h in history if h["date"] != cur["date"]]  # a re-run replaces the same day
+    # A re-run replaces the same day, but the first publication stays on record.
+    history = [h for h in history if h["date"] != cur["date"] or h.get("baseline")]
     history.insert(0, history_entry(cur, changes))
     (WEB_DATA / "changes.json").write_text(
         json.dumps(history[:HISTORY_KEEP], indent=1, ensure_ascii=False), encoding="utf-8")

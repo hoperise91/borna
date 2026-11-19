@@ -35,9 +35,9 @@ AADT_END_DATASET = "drumurile-principale-din-romania-din-afara-aglomerarilor-art
 # (public servers, CI runners), instead of failing the whole weekly run.
 http = requests.Session()
 http.mount("https://", HTTPAdapter(max_retries=Retry(
-    total=5, backoff_factor=10, status_forcelist=(429, 500, 502, 503, 504))))
+    total=3, backoff_factor=5, status_forcelist=(429, 500, 502, 503, 504))))
 http.mount("http://", HTTPAdapter(max_retries=Retry(
-    total=5, backoff_factor=10, status_forcelist=(429, 500, 502, 503, 504))))
+    total=3, backoff_factor=5, status_forcelist=(429, 500, 502, 503, 504))))
 
 
 def _md5(path) -> str:

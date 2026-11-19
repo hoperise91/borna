@@ -95,3 +95,17 @@ def test_saved_copies_are_named_in_the_note(tmp_path, monkeypatch):
     assert saved[0]["id"] == "hg540" and saved[0]["version"] == "2026-09-08"
     text = refresh.report(PREV, refresh.compare(None, PREV), [], None, (), saved)
     assert "### Saved copies used" in text and "hg540: version 2026-09-08" in text
+
+
+def test_osm_only_road_entering_the_register_is_announced():
+    prev = _summary(A1=("A", 500.0), VOF=("V", 6.1))
+    prev["roads"]["VOF"]["status"] = "osm_only"
+    cur = copy.deepcopy(prev)
+    cur["roads"]["VOF"].update(status="ok", hash="official")
+    ch = refresh.compare(prev, cur)
+    assert ch["official"] == ["VOF"] and ch["status"] == []
+    text = refresh.report(cur, ch, [], None)
+    assert "**VOF is now in HG 540/2000**" in text
+    assert "Waiting for official data" not in text
+    still = refresh.report(prev, refresh.compare(None, prev), [], None)
+    assert "1 national roads are open in OpenStreetMap" in still and "VOF" in still

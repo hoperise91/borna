@@ -59,7 +59,7 @@ export async function initRoadPage(root: HTMLElement) {
           ${onMap ? `<dt>${esc(s.km_quality)}</dt><dd>${(["calibrated", "interpolated", "estimated"] as Quality[])
             .filter((q) => shares[q] > 0.005)
             .map((q) => `<span class="q" data-q="${q}">${Math.round(shares[q] * 100)}% ${esc(S[`q_${q}`])}</span>`).join("<br>")}</dd>` : ""}
-          <dt>${esc(s.legal_source)}</dt><dd class="small">${esc(road.legal_source ?? "")}${hg?.url ? ` · <a href="${esc(hg.url)}" rel="noopener">legislatie.just.ro</a>` : ""}</dd>
+          <dt>${esc(s.legal_source)}</dt><dd class="small">${esc(road.legal_source ?? (road.lrs.status === "osm_only" ? "—" : ""))}${hg?.url ? ` · <a href="${esc(hg.url)}" rel="noopener">legislatie.just.ro</a>` : ""}</dd>
         </dl>
         ${onMap ? `<form class="rp-goto" id="rp-goto"><input inputmode="decimal" aria-label="${esc(s.go_to_km)}"
           placeholder="${esc(s.go_to_km)}, ${formatKm(((road.km_from ?? 0) + (road.km_to ?? 0)) / 2)}"/>

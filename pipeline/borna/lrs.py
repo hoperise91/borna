@@ -42,7 +42,10 @@ TWIN_M = 80            # a whole piece running this close alongside a longer pie
 TWIN_SHARE = 0.8       # ... for at least this share of its length is the other carriageway
 FOLD_NEAR_M = 70       # the path passing this close to itself, ...
 FOLD_MIN_M = 1500      # ... at least this far apart along it, is running back on itself
-OSM_ONLY_MIN_M = 2000  # OSM-only motorways/expressways shorter than this are not added
+OSM_ONLY_MIN_M = 2000  # OSM-only national roads shorter than this are not added (review list)
+OSM_ONLY_CATEGORIES = ("A", "DX", "DN", "V")
+OSM_ONLY_HIGHWAYS = ("motorway", "trunk", "primary")  # national roads are mapped as these
+OSM_ONLY_MAX_SHARED = 0.5  # a candidate mostly on ways of a register road is an alias ('DNVO1Z' on CORA)
 MILESTONE_SNAP_M = 50  # a milestone further from the path than this is ignored
 JUNCTION_SNAP_M = 150  # the road named at a route end must come this close to the path
 PLACE_NEAR_M = 5000    # a place named at a route end must be this close to the path
@@ -51,6 +54,9 @@ LENGTH_TOLERANCE = 0.10
 CHECKPOINT_TARGET_M = 50
 
 OSM_REF_RE = re.compile(r"^(A|DN|DJ|DC|DP|DEX|DX)(\d+)([A-ZĂÂÎȘȚ]{0,3}\d?)$")
+# Bypasses opened after the last HG 540 amendment carry informal codes in OSM: 'DNVO1Z'
+# (Centura Oradea), 'DNVOF' (Făgăraș), 'VO3G'. Kept as written, without 'DN'; never official.
+OSM_BYPASS_RE = re.compile(r"^(?:DN)?(VO[0-9A-Z]{1,4})$")
 ROUTE_REF_RE = re.compile(r"\b(A|DN|DJ|DC)\s?(\d+\s?[A-Z]?)\b")
 
 
@@ -60,13 +66,16 @@ def normalise_osm_ref(token: str, bypass_codes: set[str]) -> tuple[str, str] | N
     """One OSM ref token -> (ref, category) in HG 540 form, or None.
 
     'DN 6' -> ('DN6', 'DN'), 'DEx12' -> ('DX12', 'DX'), 'DNCB' -> ('CB', 'V') when CB is an
-    HG 540 bypass code. Bare numbers ('34') and foreign refs are left out.
+    HG 540 bypass code, 'DNVOF' -> ('VOF', 'V') for a bypass HG 540 does not list yet.
+    Bare numbers ('34') and foreign refs are left out.
     """
     t = re.sub(r"[\s.]", "", token.upper())
     if t in bypass_codes:  # before the pattern: 'DN7CC' is the 7CC bypass, not DN7 + 'CC'
         return t, "V"
     if t.startswith("DN") and t[2:] in bypass_codes:
         return t[2:], "V"
+    if m := OSM_BYPASS_RE.match(t):
+        return m.group(1), "V"
     if m := OSM_REF_RE.match(t):
         prefix = "DX" if m.group(1) == "DEX" else m.group(1)
         return f"{prefix}{m.group(2)}{m.group(3)}", prefix
@@ -552,18 +561,48 @@ def build(conn, holdout: bool = False) -> tuple[list[dict], list[tuple]]:
             "WHERE list = 'county_dn' AND km_from IS NOT NULL AND km_to IS NOT NULL"):
         sections[ref].append((county, float(f), float(t)))
 
-    # Motorways and expressways open in OSM but missing from HG 540 (A7, A8, DX12, ...):
-    # added as roads with source 'osm', no official km.
-    conn.execute(f"""
-        DELETE FROM borna.road WHERE source_id = 'osm';
-        INSERT INTO borna.road (ref, category, county, source_id)
-        SELECT x.ref, min(x.category), NULL, 'osm'
+    # National roads open in OSM but missing from HG 540 (A7, DX12, Centura Brașov DN1K, the
+    # Făgăraș bypass VOF, ...): added as roads with source 'osm', no official km, the OSM name
+    # as route. Candidates too short or not mapped as main roads go to the review list instead.
+    candidates = conn.execute(f"""
+        SELECT x.ref, min(x.category),
+               sum(ST_Length(w.geom::geography)) FILTER (WHERE w.highway IN {OSM_ONLY_HIGHWAYS}),
+               sum(ST_Length(w.geom::geography)),
+               mode() WITHIN GROUP (ORDER BY w.highway),
+               mode() WITHIN GROUP (ORDER BY w.name),
+               sum(ST_Length(w.geom::geography)) FILTER (WHERE s.refs IS NOT NULL),
+               string_agg(DISTINCT s.refs, ',')
         FROM borna.osm_way_ref x JOIN raw.osm_roads w USING (osm_id)
-        WHERE x.category IN ('A', 'DX') AND w.highway IN ('motorway', 'trunk', 'primary')
-          AND NOT EXISTS (SELECT 1 FROM borna.road r WHERE r.ref = x.ref)
-        GROUP BY x.ref
-        HAVING sum(ST_Length(w.geom::geography)) > {OSM_ONLY_MIN_M}
-    """)
+        LEFT JOIN LATERAL (
+            SELECT string_agg(y.ref, ',') AS refs FROM borna.osm_way_ref y
+            JOIN borna.road r ON r.ref = y.ref AND r.source_id <> 'osm'
+            WHERE y.osm_id = x.osm_id AND y.ref <> x.ref) s ON true
+        WHERE x.category IN {OSM_ONLY_CATEGORIES}
+          AND NOT EXISTS (SELECT 1 FROM borna.road r WHERE r.ref = x.ref AND r.source_id <> 'osm')
+        GROUP BY x.ref ORDER BY x.ref""").fetchall()
+    conn.execute("DELETE FROM borna.road WHERE source_id = 'osm'")
+    osm_only_report = []
+    for ref, category, main_m, all_m, highway, name, shared_m, shared_refs in candidates:
+        alias = (shared_m or 0) > OSM_ONLY_MAX_SHARED * all_m
+        added = (main_m or 0) > OSM_ONLY_MIN_M and not alias
+        if added:
+            # OSM names fit bypasses ('Centura Brașov') but not motorways ('Lot 1').
+            route = name if category in ("DN", "V") else None
+            conn.execute("INSERT INTO borna.road (ref, category, county, route_desc, source_id) "
+                         "VALUES (%s, %s, NULL, %s, 'osm')", (ref, category, route))
+        osm_only_report.append({
+            "ref": ref, "category": category, "km": round(all_m / 1000, 1),
+            "main_road_km": round((main_m or 0) / 1000, 1), "highway": highway, "name": name or "",
+            "added": "yes" if added else
+                     f"no: overlaps {','.join(sorted(set(shared_refs.split(','))))}" if alias else
+                     "no: review"})
+    (DATA_OUT / "lrs").mkdir(parents=True, exist_ok=True)
+    with open(DATA_OUT / "lrs" / "osm_only.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(osm_only_report[0]) if osm_only_report else ["ref"])
+        w.writeheader()
+        w.writerows(osm_only_report)
+    print(f"lrs: {sum(r['added'] == 'yes' for r in osm_only_report)} national roads added from OSM, "
+          f"{sum(r['added'] != 'yes' for r in osm_only_report)} to review (osm_only.csv)")
     roads = conn.execute("""
         SELECT road_id, ref, category, county, route_desc,
                km_from_official, km_to_official, length_official, source_id = 'osm'

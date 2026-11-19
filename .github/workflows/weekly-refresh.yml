@@ -51,7 +51,7 @@ jobs:
           make download SOURCES=osm
           mkdir -p data/out/refresh
           for s in hg540 gisco ins_trn139a aadt_end; do
-            make download SOURCES=$s || { make restore-raw S=$s && echo $s >> data/out/refresh/fallbacks; }
+            timeout 600 make download SOURCES=$s || { make restore-raw S=$s && echo $s >> data/out/refresh/fallbacks; }
           done
           make import
 

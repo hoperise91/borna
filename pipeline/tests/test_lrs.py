@@ -22,6 +22,11 @@ BYPASS = {"CB", "VTM", "7CC"}
     ("DNCB", ("CB", "V")),
     ("DN7CC", ("7CC", "V")),
     ("VTM", ("VTM", "V")),
+    ("DNVOF", ("VOF", "V")),       # Făgăraș bypass, not in HG 540 yet
+    ("DNVO1Z", ("VO1Z", "V")),     # Centura Oradea
+    ("VO3G", ("VO3G", "V")),
+    ("DN17VO", ("DN17VO", "DN")),
+    ("VALEAFARCASE", None),        # a valley name, not a road number
     ("34", None),
     ("E60", None),
     ("DC", None),

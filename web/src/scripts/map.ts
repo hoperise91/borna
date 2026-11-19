@@ -647,7 +647,7 @@ export function initMap(root: HTMLElement) {
     const statusText = (s as Record<string, string>)[`status_${road.lrs.status ?? "no_geometry"}`] ?? "";
     const through = road.counties ? [...new Set(road.counties.map((c) => c[0]))] : road.through ?? [];
     const srcIds = new Set(Object.values(road.attributes).flat().map((e) => e[3]));
-    const sources = [road.legal_source?.split(" (")[0] ?? "HG 540/2000",
+    const sources = [road.legal_source?.split(" (")[0] ?? (road.lrs.status === "osm_only" ? "" : "HG 540/2000"),
       onMap ? "© OpenStreetMap (ODbL)" : "", srcIds.has("aadt_end") ? "MMAP, data.gov.ro (CC BY 4.0)" : ""].filter(Boolean);
 
     view.innerHTML = `<section>${backBtn()}

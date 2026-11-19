@@ -77,7 +77,7 @@ const files = [
 
   type Week = {
     date: string; osm?: string; roads: number; baseline?: boolean;
-    added?: string[]; removed?: string[]; changed?: number;
+    added?: string[]; removed?: string[]; changed?: number; official?: string[];
     length?: { key: string; from: number; to: number }[];
   };
   const list = document.getElementById("changes")!;
@@ -110,6 +110,9 @@ const files = [
                                      : `First publication: ${w.roads.toLocaleString("en-GB")} roads.`]);
       if (w.added?.length) items.push([ro ? "Drumuri noi: " : "New roads: ",
         ...w.added.flatMap((k, i) => (i ? [", ", road(k)] : [road(k)]))]);
+      if (w.official?.length) items.push([ro ? "Intrate în registrul HG 540/2000 (km oficiali): "
+                                              : "Now in the HG 540/2000 register (official km): ",
+        ...w.official.flatMap((k, i) => (i ? [", ", road(k)] : [road(k)]))]);
       if (w.removed?.length) items.push([ro ? "Drumuri scoase: " : "Removed roads: ", w.removed.join(", ")]);
       for (const l of w.length ?? []) items.push([road(l.key), `: ${km(l.from)} → ${km(l.to)}`]);
       if (!w.baseline) items.push([w.changed
