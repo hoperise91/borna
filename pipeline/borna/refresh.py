@@ -70,7 +70,8 @@ def summarize(web_data=WEB_DATA, lrs_out=DATA_OUT / "lrs") -> dict:
     return {
         "date": date.today().isoformat(),
         "sources": sources,
-        "accuracy": json.loads((web_data / "accuracy.json").read_text()),
+        "accuracy": json.loads(acc.read_text()) if (acc := web_data / "accuracy.json").exists()
+                    else {},
         "checkpoints": checkpoints,
         "roads": roads,
     }
@@ -130,7 +131,7 @@ def check(prev: dict | None, cur: dict) -> list[str]:
     if prev is None:
         return problems
     pacc = prev["accuracy"]
-    if acc.get("within_50m_share", 0) < pacc.get("within_50m_share", 0) - HOLDOUT_SHARE_DROP:
+    if acc and acc.get("within_50m_share", 0) < pacc.get("within_50m_share", 0) - HOLDOUT_SHARE_DROP:
         problems.append(f"held-out milestones within 50 m fell from {pacc['within_50m_share']:.1%} "
                         f"to {acc['within_50m_share']:.1%}")
     n_old, n_new = len(prev["roads"]), len(cur["roads"])
@@ -222,7 +223,8 @@ def report(cur: dict, changes: dict, problems: list[str], run_url: str | None,
     lines += ["### Checks",
               f"- Checkpoints: {ok}/{len(cur['checkpoints'])} within {CHECKPOINT_MAX_M} m",
               (f"- Held-out milestones: median {acc.get('median_m')} m, "
-              f"{acc.get('within_50m_share', 0):.1%} within 50 m")]
+               f"{acc.get('within_50m_share', 0):.1%} within 50 m") if acc
+              else "- Held-out milestones: not measured this run"]
     km = _km_by_cat(cur)
     lines.append("- Mapped length: " + " · ".join(f"{c} {_km(km.get(c, 0))}" for c in NATIONAL))
     osm_only = sorted(k for k, r in cur["roads"].items() if r["status"] == "osm_only")

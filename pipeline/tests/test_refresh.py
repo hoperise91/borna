@@ -109,3 +109,10 @@ def test_osm_only_road_entering_the_register_is_announced():
     assert "Waiting for official data" not in text
     still = refresh.report(prev, refresh.compare(None, prev), [], None)
     assert "1 national roads are open in OpenStreetMap" in still and "VOF" in still
+
+
+def test_missing_accuracy_is_reported_not_fatal():
+    cur = copy.deepcopy(PREV)
+    cur["accuracy"] = {}
+    assert refresh.check(PREV, cur) == []
+    assert "not measured this run" in refresh.report(cur, refresh.compare(PREV, cur), [], None)
