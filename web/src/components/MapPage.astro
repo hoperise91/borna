@@ -20,6 +20,8 @@ const layers = [
     data-road-url={routes[lang].road}
   >
     <aside class="side" aria-label={s.browse_counties}>
+      <button type="button" class="sheet-handle" id="sheet-handle" aria-expanded="false"
+        aria-label={s.sheet_toggle}><span></span></button>
       <form class="search" role="search" id="search-form">
         <label class="visually-hidden" for="q">{s.search_placeholder}</label>
         <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -48,7 +50,13 @@ const layers = [
           <button type="button" role="radio" aria-checked={i === 0 ? "true" : "false"} data-layer={id}>{label}</button>
         ))}
       </div>
-      <div class="legend" id="legend"></div>
+      <div class="legend-box" id="legend-box">
+        <button type="button" class="legend-head" id="legend-head" aria-expanded="true" aria-controls="legend">
+          {s.legend}
+          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 7.5 6 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="legend" id="legend"></div>
+      </div>
       <div class="layers-panel" id="layers-panel" hidden></div>
       <a class="maptiler-logo" id="maptiler-logo" href="https://www.maptiler.com" target="_blank" rel="noopener" hidden>
         <img src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo" width="90" height="23" />
@@ -153,11 +161,22 @@ const layers = [
   }
   .layer-switch button:hover { color: var(--ink); }
   .layer-switch button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
-  .legend {
-    position: absolute; left: 12px; bottom: 28px; padding: 10px 12px; border-radius: 10px;
+  .legend-box {
+    position: absolute; left: 12px; bottom: calc(28px + var(--sheet-visible, 0px)); border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--shadow);
-    border: 1px solid var(--line); font-size: 12.5px; min-width: 150px;
+    border: 1px solid var(--line); font-size: 12.5px; min-width: 150px; transition: bottom .25s ease;
   }
+  .legend-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+    border: 0; background: none; padding: 7px 12px; cursor: pointer; border-radius: 10px;
+    font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  }
+  .legend-head:hover { color: var(--ink); }
+  .legend-head svg { transition: transform .2s ease; }
+  .legend-box.folded .legend-head svg { transform: rotate(180deg); }
+  .legend { padding: 0 12px 10px; }
+  .legend-box.folded .legend { display: none; }
+  .sheet-handle { display: none; }
   .legend .row { display: flex; align-items: center; gap: 8px; line-height: 1.7; }
   .legend .toggle {
     width: 100%; border: 0; background: none; padding: 0 4px; margin: 0 -4px; border-radius: 5px;
@@ -236,14 +255,30 @@ const layers = [
     box-shadow: 0 0 0 4px rgba(0,0,0,.15);
   }
 
+  /* Phones: the map fills the screen; the sidebar is a bottom sheet over it (peek = search bar). */
   @media (max-width: 860px) {
-    body.fullscreen { overflow: auto; }
-    .app { grid-template-columns: 1fr; grid-template-rows: 52dvh auto; height: auto; }
-    .map-wrap { grid-row: 1; height: 52dvh; }
-    .side { grid-row: 2; border-right: 0; border-top: 1px solid var(--line); min-height: 48dvh; }
-    .view { overflow: visible; }
-    .layer-switch { left: 8px; right: 8px; transform: none; overflow-x: auto; justify-content: flex-start; }
-    .legend { bottom: 10px; left: 8px; }
-    .layers-panel { right: 48px; left: 8px; width: auto; top: 52px; }
+    .app { display: block; position: relative; --sheet-peek: 78px; }
+    .map-wrap { position: absolute; inset: 0; }
+    .side {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 58dvh; z-index: 4;
+      border-right: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+      box-shadow: 0 -6px 24px rgba(0, 0, 0, .18);
+      transform: translateY(calc(100% - var(--sheet-peek))); transition: transform .25s ease;
+    }
+    .app.sheet-open .side { transform: none; }
+    .sheet-handle {
+      display: block; width: 100%; height: 22px; padding: 8px 0 0; border: 0; background: none;
+      cursor: pointer; flex: none; touch-action: manipulation;
+    }
+    .sheet-handle span { display: block; width: 42px; height: 5px; margin: 0 auto; border-radius: 3px; background: var(--line-2); }
+    .search { padding: 4px 12px 10px; }
+    .search-icon { left: 25px; top: 16px; }
+    .search .clear { right: 20px; top: 11px; }
+    .layer-switch { left: 8px; right: 52px; transform: none; overflow-x: auto; justify-content: flex-start; }
+    .legend-box { left: 8px; bottom: calc(10px + var(--sheet-visible, 0px)); max-width: calc(100% - 70px); }
+    .layers-panel { right: 48px; left: 8px; width: auto; top: 52px; max-height: calc(100% - 64px - var(--sheet-visible, 0px)); }
+    .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: var(--sheet-visible, 0px); transition: bottom .25s ease; }
+    .maptiler-logo { bottom: calc(30px + var(--sheet-visible, 0px)); }
+    .map-loading { bottom: calc(28px + var(--sheet-visible, 0px)); }
   }
 </style>

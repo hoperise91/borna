@@ -126,6 +126,45 @@ export function initMap(root: HTMLElement) {
   if (import.meta.env.DEV) (window as unknown as { bornaMap: unknown }).bornaMap = map; // for testing
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-right");
+
+  // ---- phones: the sidebar is a bottom sheet; the legend folds -------------------------------
+  const phone = window.matchMedia("(max-width: 860px)");
+  const side = root.querySelector<HTMLElement>(".side")!;
+  const sheetHandle = root.querySelector<HTMLButtonElement>("#sheet-handle")!;
+  let sheetOpen = false;
+  function setSheet(open: boolean) {
+    sheetOpen = open;
+    root.classList.toggle("sheet-open", open);
+    sheetHandle.setAttribute("aria-expanded", String(open));
+    const peek = parseFloat(getComputedStyle(root).getPropertyValue("--sheet-peek")) || 0;
+    const covered = phone.matches ? (open ? side.offsetHeight : peek) : 0;
+    root.style.setProperty("--sheet-visible", `${covered}px`);
+  }
+  // Room around a fitted road; on phones the open sheet covers the bottom, so keep the road above
+  // it (showing a road always opens the sheet). Camera padding would interrupt running animations.
+  const fitPad = (p: number) => ({ top: p, left: p, right: p, bottom: p + (phone.matches ? side.offsetHeight : 0) });
+  sheetHandle.addEventListener("click", () => setSheet(!sheetOpen));
+  input.addEventListener("focus", () => { if (phone.matches) setSheet(true); });
+  // A list or a road opened (from the map, search or a list) slides the sheet up; home doesn't.
+  new MutationObserver(() => {
+    if (phone.matches && !view.querySelector('[data-view="home"]')) setSheet(true);
+  }).observe(view, { childList: true });
+  phone.addEventListener("change", () => setSheet(sheetOpen));
+  setSheet(false);
+
+  const legendBox = root.querySelector<HTMLElement>("#legend-box")!;
+  const legendHead = root.querySelector<HTMLButtonElement>("#legend-head")!;
+  function setLegend(open: boolean) {
+    legendBox.classList.toggle("folded", !open);
+    legendHead.setAttribute("aria-expanded", String(open));
+  }
+  // Folded by default on phones, open on larger screens; the visitor's choice is remembered.
+  setLegend((stored("borna.legend") ?? (phone.matches ? "folded" : "open")) === "open");
+  legendHead.addEventListener("click", () => {
+    const open = legendBox.classList.contains("folded");
+    setLegend(open);
+    store("borna.legend", open ? "open" : "folded");
+  });
   map.addControl(layersControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
 
@@ -551,7 +590,7 @@ export function initMap(root: HTMLElement) {
     const own = rows.filter((r) => r[2] === code && r[5]);
     const b = (own.length ? own : rows).map((r) => r[5]).filter(Boolean) as [number, number, number, number][];
     if (b.length && !keepView) map.fitBounds([[Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1]))],
-      [Math.max(...b.map((x) => x[2])), Math.max(...b.map((x) => x[3]))]], { padding: 40, duration: 700 });
+      [Math.max(...b.map((x) => x[2])), Math.max(...b.map((x) => x[3]))]], { padding: fitPad(40), duration: 700 });
   }
 
   // ---- search ---------------------------------------------------------------------------
@@ -617,11 +656,12 @@ export function initMap(root: HTMLElement) {
       if (loc) {
         here = { km: opts.km, quality: loc.quality };
         placePin(loc.point, road, opts.km);
-        map.flyTo({ center: loc.point as LngLatLike, zoom: Math.max(map.getZoom(), 14), duration: 900 });
+        map.flyTo({ center: loc.point as LngLatLike, zoom: Math.max(map.getZoom(), 14), duration: 900,
+          offset: [0, -(fitPad(0).bottom / 2)] }); // above the sheet on phones
       } else { outOfRange = true; pin.remove(); pinPopup.remove(); }
     } else { pin.remove(); pinPopup.remove(); }
     if (opts.fit && road.bbox) {
-      map.fitBounds([[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]], { padding: 50, maxZoom: 14, duration: 800 });
+      map.fitBounds([[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]], { padding: fitPad(50), maxZoom: 14, duration: 800 });
     }
     const url = new URL(location.href);
     url.searchParams.set("r", key);
@@ -685,7 +725,7 @@ export function initMap(root: HTMLElement) {
     if (onMap) {
       stopStrip = liveStrip(view.querySelector<HTMLElement>("#mini-strip")!, road, s, { compact: true });
       view.querySelector("#fit")!.addEventListener("click", () => road.bbox && map.fitBounds(
-        [[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]], { padding: 50, maxZoom: 14 }));
+        [[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]], { padding: fitPad(50), maxZoom: 14 }));
       view.querySelector("#goto")!.addEventListener("submit", (e) => {
         e.preventDefault();
         const v = (e.currentTarget as HTMLFormElement).querySelector("input")!.value;
