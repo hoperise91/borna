@@ -53,7 +53,7 @@ jobs:
           for try in 1 2 3; do
             make download SOURCES=osm && break
             if [ $try = 3 ]; then
-              echo "Geofabrik (OpenStreetMap download) did not answer after 3 tries." > data/out/refresh/unreachable
+              echo "The OpenStreetMap download from Geofabrik failed 3 times (the run log says why)." > data/out/refresh/unreachable
               exit 1
             fi
             sleep 300

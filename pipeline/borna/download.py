@@ -55,11 +55,14 @@ def _md5(path) -> str:
 
 def download_osm() -> None:
     out = sources.raw_dir("osm") / "romania-latest.osm.pbf"
-    # Geofabrik redirects "latest" to the dated extract (romania-261118.osm.pbf); only the dated
-    # file has an .md5 next to it, so resolve the redirect first.
-    head = http.head(GEOFABRIK_URL, allow_redirects=False, timeout=30)
-    url = requests.compat.urljoin(GEOFABRIK_URL, head.headers["Location"]) \
-        if head.is_redirect else GEOFABRIK_URL
+    # Geofabrik redirects "latest" (sometimes via a moved folder) to the dated extract
+    # (romania-261118.osm.pbf); only the dated file has an .md5 next to it, so follow every hop.
+    url = GEOFABRIK_URL
+    for _ in range(5):
+        head = http.head(url, allow_redirects=False, timeout=30)
+        if not head.is_redirect:
+            break
+        url = requests.compat.urljoin(url, head.headers["Location"])
     md5 = http.get(url + ".md5", timeout=30)
     md5.raise_for_status()
     remote_md5 = md5.text.split()[0]
