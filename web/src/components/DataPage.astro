@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { strings, type Lang } from "../lib/i18n";
+import { DATA_URL } from "../lib/roads";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -44,10 +45,10 @@ const files = [
         : "Every road has a static JSON file with its calibrated segments (for km lookup), its properties along the km and the source of every value:"}
     </p>
     <div class="table-wrap"><table><tbody>
-      <tr><td class="mono">/data/index.json</td><td>{ro ? "toate drumurile: cheie, număr, județ, categorie, traseu, limite" : "every road: key, number, county, category, route, bounds"}</td></tr>
-      <tr><td class="mono">/data/roads/DN1.json</td><td>{ro ? "un drum național" : "a national road"}</td></tr>
-      <tr><td class="mono">/data/roads/CV-DJ121.json</td><td>{ro ? "un drum județean sau comunal: cod județ + număr" : "a county or communal road: county code + number"}</td></tr>
-      <tr><td class="mono">/data/sources.json</td><td>{ro ? "sursele, cu licență și dată" : "the sources, with licence and date"}</td></tr>
+      <tr><td class="mono">{DATA_URL}/index.json</td><td>{ro ? "toate drumurile: cheie, număr, județ, categorie, traseu, limite" : "every road: key, number, county, category, route, bounds"}</td></tr>
+      <tr><td class="mono">{DATA_URL}/roads/DN1.json</td><td>{ro ? "un drum național" : "a national road"}</td></tr>
+      <tr><td class="mono">{DATA_URL}/roads/CV-DJ121.json</td><td>{ro ? "un drum județean sau comunal: cod județ + număr" : "a county or communal road: county code + number"}</td></tr>
+      <tr><td class="mono">{DATA_URL}/sources.json</td><td>{ro ? "sursele, cu licență și dată" : "the sources, with licence and date"}</td></tr>
     </tbody></table></div>
     <p class="small muted">
       {ro

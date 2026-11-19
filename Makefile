@@ -17,7 +17,7 @@ RUN  := cd pipeline && ../$(PY) -m
 SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build test
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build deploy-data test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -77,6 +77,15 @@ web-dev: ## Phase 3: run the site locally at http://localhost:4321 (after make t
 
 web-build: ## Phase 3: build the static site into web/dist/
 	cd web && npm install && npm run build
+
+R2_BUCKET ?= borna-data
+deploy-data: ## Phase 3.5: sync web/public/data/ to Cloudflare R2 (needs R2_* in .env, rclone)
+	@test -n "$(R2_ACCOUNT_ID)" -a -n "$(R2_ACCESS_KEY_ID)" -a -n "$(R2_SECRET_ACCESS_KEY)" || { echo "Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in .env"; exit 1; }
+	@test -f web/public/data/index.json || { echo "Run make tiles first"; exit 1; }
+	RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+	RCLONE_CONFIG_R2_ACCESS_KEY_ID=$(R2_ACCESS_KEY_ID) RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=$(R2_SECRET_ACCESS_KEY) \
+	RCLONE_CONFIG_R2_ENDPOINT=https://$(R2_ACCOUNT_ID).r2.cloudflarestorage.com RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
+	rclone sync web/public/data/ r2:$(R2_BUCKET)/ --checksum --transfers 32 --fast-list --stats-one-line -v
 
 test: setup ## Run pipeline unit tests and lint
 	cd pipeline && ../$(VENV)/bin/pytest -q && ../$(VENV)/bin/ruff check borna tests

@@ -37,7 +37,7 @@
 - OSM barely has road width (~200 tagged stretches): the width layer is mostly an estimate from lanes, labelled as such.
 
 ### Next steps
-1. **Go live (Phase 3.5).** Needed from the owner: domain (`bornakm.ro`, or start on a free `*.pages.dev`), a Cloudflare account, a GitHub repo (personal account or `borna` org; public?). Claude: move `borna.pmtiles` (24.4 MB, at the 25 MB Pages limit) to R2, deploy config, cookieless analytics, add the domain + `*.pages.dev` to the MapTiler key's allowed origins.
+1. **Go live (Phase 3.5).** Decided 2026-11-19: domain **bornakm.ro**, public GitHub repo on the owner's personal account. Prepared: `make deploy-data` (rclone sync of `web/public/data/` to R2 bucket `borna-data`), `deploy/r2-cors.json`, `web/.env.example`. Remaining: owner registers bornakm.ro (ROTLD registrar) and creates a Cloudflare account; site → Cloudflare Pages from GitHub (root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL=https://data.bornakm.ro`, `PUBLIC_MAPTILER_KEY`); R2 bucket on custom domain `data.bornakm.ro` with the CORS rules; Cloudflare Web Analytics (cookieless); add bornakm.ro + `*.pages.dev` to the MapTiler key's allowed origins.
 2. **Weekly automated refresh** (Phase 4.1) with a "what changed" log.
 3. Bridges/tunnels as point objects, Mapillary speed limits, DN roads missing from HG 540, "report an error" link (Phase 4).
 4. Waiting on others: ANCPI orthophoto (0.5 m) when geoportal.ancpi.ro is back; TENtec when the EC server is back; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
