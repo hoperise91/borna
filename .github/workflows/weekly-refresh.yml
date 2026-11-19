@@ -48,8 +48,16 @@ jobs:
           # OSM changes daily and must be fresh. The other sources change a few times a year and
           # some servers refuse CI machines (legislatie.just.ro): use the saved copy from the
           # private bucket then (`make snapshot-raw` on the owner's machine), and say so in the note.
-          make download SOURCES=osm
           mkdir -p data/out/refresh
+          # Some CI machines cannot reach Geofabrik at first: try three times, 5 minutes apart.
+          for try in 1 2 3; do
+            make download SOURCES=osm && break
+            if [ $try = 3 ]; then
+              echo "Geofabrik (OpenStreetMap download) did not answer after 3 tries." > data/out/refresh/unreachable
+              exit 1
+            fi
+            sleep 300
+          done
           for s in hg540 gisco ins_trn139a aadt_end; do
             timeout 600 make download SOURCES=$s || { make restore-raw S=$s && echo $s >> data/out/refresh/fallbacks; }
           done
@@ -85,7 +93,9 @@ jobs:
             published) title="Weekly refresh $day: published" ;;
             held)      title="Weekly refresh $day: held back" ;;
             *)         title="Weekly refresh $day: failed"
-                       printf '**Failed**: the run stopped before it could finish, so nothing on bornakm.ro changed.\n\n[Run log](%s)\n' "$RUN_URL" > note.md ;;
+                       { printf '**Failed**: the run stopped before it could finish, so nothing on bornakm.ro changed.\n\n'
+                         [ -f data/out/refresh/unreachable ] && { cat data/out/refresh/unreachable; echo "Next Monday's run will try again; no action needed unless it keeps happening."; echo; }
+                         printf '[Run log](%s)\n' "$RUN_URL"; } > note.md ;;
           esac
           [ -f note.md ] || cp data/out/refresh/report.md note.md
           printf '\n@%s\n' "${{ github.repository_owner }}" >> note.md

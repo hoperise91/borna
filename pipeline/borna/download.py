@@ -6,12 +6,14 @@ Each download is skipped when the local copy already matches the published versi
 
 import hashlib
 import re
+import socket
 import sys
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 import duckdb
 import requests
+import urllib3.util.connection
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -30,6 +32,9 @@ DATA_GOV_RO = "https://data.gov.ro/api/3/action/"
 # reporting: carries annualTrafficFlow per section. Only roads above 3M vehicles/year.
 AADT_END_DATASET = "drumurile-principale-din-romania-din-afara-aglomerarilor-art-7-din-directiva-2002-49-ce"
 
+
+# IPv4 only: CI machines have no IPv6, and a failed IPv6 attempt otherwise hides the real error.
+urllib3.util.connection.allowed_gai_family = lambda: socket.AF_INET
 
 # One session for every source: retries with backoff ride out brief network or server hiccups
 # (public servers, CI runners), instead of failing the whole weekly run.
