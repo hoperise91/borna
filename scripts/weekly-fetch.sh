@@ -12,6 +12,17 @@ mkdir -p data/out/fetch
 if [ -f "$stamp" ] && [ -z "$(find "$stamp" -mtime +6)" ]; then
   exit 0   # fetched less than 6 days ago
 fi
+# Not on a hotspot: macOS flags iPhone Personal Hotspot as expensive, and any Wi-Fi network with
+# Low Data Mode on (System Settings → Wi-Fi → network → Details) as low-data. Skip, retry in 3 h.
+netcheck=data/out/fetch/netcheck
+if [ ! -x "$netcheck" ] || [ scripts/netcheck.swift -nt "$netcheck" ]; then
+  swiftc -O scripts/netcheck.swift -o "$netcheck" 2>> "$log"
+fi
+net=$("$netcheck")
+case "$net" in
+  online\ normal\ unlimited) ;;
+  *) echo "$(date '+%F %T') skipped: connection is '$net'" >> "$log"; exit 0 ;;
+esac
 {
   echo "=== $(date '+%F %T') weekly fetch"
   make download SOURCES="osm hg540"
