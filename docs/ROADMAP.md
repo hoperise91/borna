@@ -38,9 +38,10 @@
 
 ### Next steps
 1. ~~Go live~~ ✅ 2026-11-19. Setup: domain bornakm.ro (registrar Nettissimo, DNS on Cloudflare); Pages project `borna` (`borna-6h1.pages.dev`; root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL`, `PUBLIC_MAPTILER_KEY`, `NODE_VERSION=24`); R2 bucket `borna-data` (EEUR) on `data.bornakm.ro`, CORS in `deploy/r2-cors.json` (paste into the dashboard when it changes); data upload `make deploy-data` (R2 keys in `.env`); MapTiler key allows bornakm.ro, www, borna-6h1.pages.dev; Cloudflare Web Analytics (cookieless). Code changes deploy on `git push`; data changes need `make tiles deploy-data`.
-2. **Weekly automated refresh** ◐ built 2026-11-19: GitHub Actions every Monday, checks before publishing, weekly note as a GitHub issue (email), "Updates" list on `/date/`. Owner asked for the email every week for now; switch to notable-only later (held back, failed, new A/DX roads).
-3. Bridges/tunnels as point objects, Mapillary speed limits, DN roads missing from HG 540, "report an error" link (Phase 4).
-4. Waiting on others (rechecked 2026-11-19: still down): ANCPI orthophoto (0.5 m), geoportal.ancpi.ro has no DNS record at all, so the service may have moved; TENtec, tentec.transport.ec.europa.eu answers 503 → EC "server temporarily unavailable" page; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
+2. **Weekly automated refresh** ◐ built 2026-11-19: GitHub Actions every Monday, checks before publishing, weekly note as a GitHub issue (email), "Updates" list on `/date/`, watch on offline sources. Owner asked for the email every week for now; switch to notable-only later (held back, failed, new A/DX roads). **Blocked until the owner creates the private R2 bucket `borna-raw` and adds it to the `borna-deploy` token**; then `make snapshot-raw` and a test run (Actions → Weekly refresh → Run workflow). Test runs 1–2 failed safely (Geofabrik redirect, fixed; legislatie.just.ro refuses CI → saved copies).
+3. **NVDB-style attributes, batch 1** (Phase 4.7, all data already open): E-roads, interchanges, level crossings, border crossings and tolls, ferries, DRDP. Then gradient and curves (4.8).
+4. Bridges/tunnels as point objects, Mapillary signs, DN roads missing from HG 540, "report an error" link (Phase 4).
+5. Waiting on others (rechecked 2026-11-19: still down): ANCPI orthophoto (0.5 m), geoportal.ancpi.ro has no DNS record at all, so the service may have moved; TENtec, tentec.transport.ec.europa.eu answers 503 → EC "server temporarily unavailable" page; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
 
 ### Resuming
 `make db-up` (PostGIS in Docker keeps all data) · `make web-dev` → http://localhost:4321.
@@ -182,6 +183,16 @@ source          (source_id, name, url, licence, retrieved_at)
 4. Mapillary speed-limit signs where OSM lacks `maxspeed`.
 5. Error reports → GitHub issues; fixes flow back to OSM.
 6. Allies: the OSM Romania community, Code for Romania, Asociația Pro Infrastructură, university road departments.
+7. **NVDB-style attributes from open data, batch 1** (small; new rows on the road page and point markers on the map, each with source/date/licence):
+   - E-roads (*Europaväg*): OSM `network=e-road` route relations (30 in Romania), checked against the UNECE AGR list.
+   - Interchanges (*Trafikplats*): OSM `motorway_junction` (436, with number and name), km on A/DX.
+   - Level crossings (*Järnvägskorsning*): OSM, 9,609 already in `raw.osm_road_points`.
+   - Border crossings and toll points: OSM, 146 + 23 already imported.
+   - Ferries (*Färjeled*): OSM `route=ferry` (Danube crossings), linked to the roads they join.
+   - Regional administrator: the CNAIR DRDP managing each DN, from CNAIR's published organisation.
+8. **NVDB-style attributes, batch 2** (medium): gradient and height profile (*Lutning*) from Copernicus DEM GLO-30 (free, attribution) along each road; curves (*Kurvatur*) from our own geometry; built-up stretches (*Tättbebyggt område*) from GISCO LAU crossings + OSM `maxspeed:type=RO:urban`.
+9. **Thin in OSM today, revisit with Mapillary** (open sign detections, CC BY-SA): one-way (46% of main roads tagged, 2026-11-19), lighting (10%), sidewalks (12%), weight/axle/height limits (≤2%), no-overtaking (0.3%). OSM `smoothness` is on 78% but is a mapper's judgement: show it only labelled as such, never as measured condition.
+10. **Not open in Romania** (Phase 5 requests): full traffic census (CESTRIN), bridge inventory with load classes, winter maintenance classes, carriageway widths, accident locations (only county totals are public). TEN-T comes back with TENtec (on the weekly watch).
 
 ### Phase 5: Formal data requests (only for the remaining gaps)
 Done only once Phases 1–4 have shown exactly what's missing. Likely candidates: BDTR attributes (width, pavement structure), the full bridge inventory, AADT for DJ roads, and the 2026 census results.
