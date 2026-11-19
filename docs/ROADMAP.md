@@ -13,7 +13,7 @@
 
 ## Progress (updated 2026-11-19)
 
-**Phases 1–2 done, Phase 3 built and running locally; not yet deployed.** Next session: **go live** (§ "Next steps" below).
+**Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: weekly automated refresh (§ "Next steps" below).
 
 | Phase / step | Status | Notes |
 |---|---|---|
@@ -26,7 +26,7 @@
 | 2 Linear referencing | ✅ | every register road matched to OSM, km calibrated (county borders, junctions, milestones); held-out milestones: median 12 m, 88% within 50 m |
 | 2 Attributes | ✅ | surface, lanes, speed, width, bridges, tunnels, AADT on km ranges with source/date/licence |
 | 2 QA | ✅ | `make qa`: register vs INS vs OSM per county, surfaces, gap report |
-| 3 Portal | ◐ built | Astro site RO/EN at `make web-dev` (localhost:4321); **not deployed** |
+| 3 Portal | ✅ live | https://bornakm.ro (Cloudflare Pages, auto-deploy from GitHub `hoperise91/borna` main); data on R2 at https://data.bornakm.ro |
 
 **What the portal does now:** map with click/hover on roads, county → road browsing, search incl. `DN1 km 27+400`, road panel and road page (strip diagram, every value with its source), layer modes (category, surface, speed, traffic, width, administrator), background maps (light, dark, detailed, MapTiler terrain + satellite, none), road-type toggles, road-number labels, dashed sections under construction, data and about pages.
 
@@ -37,7 +37,7 @@
 - OSM barely has road width (~200 tagged stretches): the width layer is mostly an estimate from lanes, labelled as such.
 
 ### Next steps
-1. **Go live (Phase 3.5).** Decided 2026-11-19: domain **bornakm.ro**, public GitHub repo on the owner's personal account. Prepared: `make deploy-data` (rclone sync of `web/public/data/` to R2 bucket `borna-data`), `deploy/r2-cors.json`, `web/.env.example`. Remaining: owner registers bornakm.ro (ROTLD registrar) and creates a Cloudflare account; site → Cloudflare Pages from GitHub (root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL=https://data.bornakm.ro`, `PUBLIC_MAPTILER_KEY`); R2 bucket on custom domain `data.bornakm.ro` with the CORS rules; Cloudflare Web Analytics (cookieless); add bornakm.ro + `*.pages.dev` to the MapTiler key's allowed origins.
+1. ~~Go live~~ ✅ 2026-11-19. Setup: domain bornakm.ro (registrar Nettissimo, DNS on Cloudflare); Pages project `borna` (`borna-6h1.pages.dev`; root `web`, `npm run build`, output `dist`, env `PUBLIC_DATA_URL`, `PUBLIC_MAPTILER_KEY`, `NODE_VERSION=24`); R2 bucket `borna-data` (EEUR) on `data.bornakm.ro`, CORS in `deploy/r2-cors.json` (paste into the dashboard when it changes); data upload `make deploy-data` (R2 keys in `.env`); MapTiler key allows bornakm.ro, www, borna-6h1.pages.dev; Cloudflare Web Analytics (cookieless). Code changes deploy on `git push`; data changes need `make tiles deploy-data`.
 2. **Weekly automated refresh** (Phase 4.1) with a "what changed" log.
 3. Bridges/tunnels as point objects, Mapillary speed limits, DN roads missing from HG 540, "report an error" link (Phase 4).
 4. Waiting on others: ANCPI orthophoto (0.5 m) when geoportal.ancpi.ro is back; TENtec when the EC server is back; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
