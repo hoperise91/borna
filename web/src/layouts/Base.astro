@@ -14,6 +14,10 @@ const s = strings[lang];
 const r = routes[lang];
 const other: Lang = lang === "ro" ? "en" : "ro";
 const pageTitle = title ? `${title} · Bornă` : `Bornă · ${s.tagline}`;
+const pageDescription = description ?? s.tagline;
+// Link previews (iMessage, WhatsApp, Facebook…) need absolute URLs and a PNG image.
+const pageUrl = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL("/og-image.png", Astro.site).href;
 ---
 <!doctype html>
 <html lang={lang}>
@@ -21,8 +25,22 @@ const pageTitle = title ? `${title} · Bornă` : `Bornă · ${s.tagline}`;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
-    <meta name="description" content={description ?? s.tagline} />
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href={pageUrl} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bornă" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`Bornă · ${s.tagline}`} />
+    <meta property="og:locale" content={lang === "ro" ? "ro_RO" : "en_GB"} />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="alternate" hreflang={other} href={routes[other][page]} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
