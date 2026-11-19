@@ -3,6 +3,7 @@
 Every attribute value is placed on a road's km range and keeps its source, date and licence:
   - OSM, per way on the road: surface, lanes, maxspeed, width, bridge, tunnel (values as tagged)
   - open AADT (Directive 2002/49/CE major-roads reporting, data.gov.ro): aadt per section
+  - European routes (OSM route relations network=e-road): eroad = 'E60' on the roads they follow
 
 A way or section is placed by measuring its two ends on the road's calibrated segments (as
 borna.measure() does, but in memory), kept only if its midpoint lies on the road (within
@@ -144,10 +145,42 @@ def aadt_events(conn, manifest: dict, roads, by_key) -> None:
     _write_events(conn, rows, manifest, "aadt_end")
 
 
+def eroad_events(conn, manifest: dict, roads, by_key) -> None:
+    """European routes (E60, E81, ...): each relation way placed on the Bornă roads it carries."""
+    rows, placed = [], 0
+    for eref, ref, counties, g in conn.execute(f"""
+            SELECT regexp_replace(upper(r.ref), '\\s', '', 'g'), x.ref,
+                   ARRAY(SELECT c.county FROM borna.osm_way_county c WHERE c.osm_id = w.osm_id),
+                   ST_AsBinary(ST_Transform(w.geom, {CRS_METRIC}))
+            FROM raw.osm_road_routes r
+            CROSS JOIN LATERAL jsonb_array_elements_text(r.way_ids) AS way_id
+            JOIN borna.osm_way_ref x ON x.osm_id = way_id::bigint
+            JOIN raw.osm_roads w ON w.osm_id = x.osm_id
+            WHERE r.network = 'e-road' AND r.ref ~* '^E\\s?[0-9]+$'
+              AND x.category IN ('A', 'DX', 'DN', 'V')  -- E-routes follow national roads only
+              AND right(w.highway, 5) <> '_link'"""):
+        line = wkb.loads(bytes(g))
+        for key in [(ref, None)] + [(ref, c) for c in counties]:
+            rid = by_key.get(key)
+            if rid is not None and (km := place(roads[rid], line, ON_ROAD_M)) is not None:
+                rows.append((rid, "eroad", eref, *km))
+                placed += 1
+    print(f"attributes: eroad: {placed:,} way placements")
+    # Same source as the other OSM values: replace only the eroad events.
+    conn.execute("CREATE TEMP TABLE ev_in (road_id int, type text, value text, a numeric, b numeric)")
+    with conn.cursor().copy("COPY ev_in FROM STDIN") as copy:
+        for row in rows:
+            copy.write_row(row)
+    conn.execute("DELETE FROM borna.attribute_event WHERE source_id = 'osm' AND type = 'eroad'")
+    conn.execute(MERGE_SQL, {"source_id": "osm", "source_date": manifest["version"],
+                             "licence": manifest["licence"]})
+    conn.execute("DROP TABLE ev_in")
+
+
 def main() -> int:
     with psycopg.connect(PG_DSN) as conn:
         roads, by_key = load_roads(conn)
-        for source_id, fn in (("osm", osm_events), ("aadt_end", aadt_events)):
+        for source_id, fn in (("osm", osm_events), ("osm", eroad_events), ("aadt_end", aadt_events)):
             manifest = sources.read_manifest(source_id)
             if not manifest:
                 print(f"attributes: {source_id}: no download, skipped", file=sys.stderr)

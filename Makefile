@@ -17,7 +17,7 @@ RUN  := cd pipeline && ../$(PY) -m
 SOURCES ?=   # e.g. make download SOURCES=osm (default: all)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes qa tiles web-dev web-build refresh deploy-data snapshot-raw restore-raw fetch-install fetch-uninstall test
+.PHONY: help setup check-tools db-up db-down db-reset psql download import register lrs attributes objects qa tiles web-dev web-build refresh deploy-data snapshot-raw restore-raw fetch-install fetch-uninstall test
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -65,6 +65,9 @@ lrs: setup db-up ## Phase 2: match register to geometry, calibrate km
 
 attributes: setup db-up ## Phase 2: surface, lanes, speed, bridges, AADT onto road km ranges
 	$(RUN) borna.attributes
+
+objects: setup db-up ## Phase 4.7: level crossings, interchanges, borders, tolls placed on road km (after lrs)
+	$(RUN) borna.objects
 
 qa: setup db-up ## Phase 2: QA report vs INS + gap report (data/out/qa/)
 	$(RUN) borna.qa

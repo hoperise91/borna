@@ -13,7 +13,9 @@ import {
   locate, measure, parseQuery, qualityShares, fetchSources, surfaceClass, type Event,
 } from "../lib/roads";
 import { liveStrip, stripBands } from "../lib/strip";
-import { COLOUR_MODES, DATA_GROUPS, DATA_TYPES, DEFAULT_DATA, type DataId, type Mode } from "../lib/datatypes";
+import {
+  COLOUR_MODES, DATA_GROUPS, DATA_TYPES, DEFAULT_DATA, OBJECT_COLOR, type DataId, type Mode,
+} from "../lib/datatypes";
 
 const OFM = "https://tiles.openfreemap.org/styles/";
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"; // for road labels on raster maps
@@ -201,7 +203,8 @@ export function initMap(root: HTMLElement) {
   let showLabels = stored("borna.labels") !== "0";
   let showConstruction = stored("borna.construction") !== "0";
   // Data types shown in the road panel (ticked in the data list).
-  let shownData = new Set<DataId>(JSON.parse(stored("borna.data") ?? "null") ?? DEFAULT_DATA);
+  // v2: E-roads and point objects added; older saved choices didn't know them
+  let shownData = new Set<DataId>(JSON.parse(stored("borna.data.v2") ?? "null") ?? DEFAULT_DATA);
   // Source versions, for "source · date" next to each value.
   const sourceVersion: Record<string, string> = {};
   fetchSources().then((list) => list.forEach((x) => { sourceVersion[x.id] = x.version; })).catch(() => {});
@@ -279,8 +282,27 @@ export function initMap(root: HTMLElement) {
         "icon-text-fit": "both", "icon-text-fit-padding": [1, 4, 1, 4], "text-padding": 6,
       },
       paint: { "text-color": "#ffffff" } });
+    // Point objects (level crossings, interchanges, borders, tolls): dots, ticked in the data list.
+    map.addLayer({ id: "objects", type: "circle", source: "borna", "source-layer": "objects",
+      paint: {
+        "circle-color": ["match", ["get", "y"], ...Object.entries(OBJECT_COLOR).flat(), "#666"] as unknown as ExpressionSpecification,
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 3, 12, 5, 15, 7],
+        "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5,
+      } });
     applyMode();
     applyRoadTypes();
+    applyObjects();
+  }
+
+  function applyObjects() {
+    if (!map.getLayer("objects")) return;
+    const types = DATA_TYPES.filter((d) => d.object && shownData.has(d.id)).map((d) => d.object!);
+    map.setFilter("objects", ["in", ["get", "y"], ["literal", types]]);
+  }
+
+  // "Nod rutier 5 · Bărcănești", "Punct de trecere a frontierei · Borș"
+  function objectLabel(type: string, name?: string | null, ref?: string | null): string {
+    return [T[`one_${type}`] ?? type, [ref, name].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
   }
   map.on("style.load", addOverlays);
 
@@ -311,9 +333,18 @@ export function initMap(root: HTMLElement) {
   }
 
   // hover (layer-scoped listeners survive style changes)
+  map.on("mousemove", "objects", (e) => {
+    const f = e.features?.[0];
+    if (!f) return;
+    map.getCanvas().style.cursor = "pointer";
+    hoverPopup.setLngLat(e.lngLat).setHTML(`<span class="hv">${esc(objectLabel(
+      f.properties.y, f.properties.n, f.properties.x))}</span>`).addTo(map);
+  });
+  map.on("mouseleave", "objects", () => { if (!hoverKey) { hoverPopup.remove(); map.getCanvas().style.cursor = ""; } });
   map.on("mousemove", "roads", (e) => {
     const f = e.features?.[0];
     if (!f) return;
+    if (map.getLayer("objects") && map.queryRenderedFeatures(e.point, { layers: ["objects"] }).length) return;
     map.getCanvas().style.cursor = "pointer";
     hoverKey = f.properties.k as string;
     map.setFilter("road-hover", ["==", ["get", "k"], hoverKey]);
@@ -364,6 +395,12 @@ export function initMap(root: HTMLElement) {
   map.on("click", (e) => {
     if (!map.getLayer("roads")) return;
     const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
+    const obj = map.getLayer("objects") ? map.queryRenderedFeatures(box, { layers: ["objects"] })[0] : undefined;
+    if (obj) { // an object opens its road at its km
+      hoverPopup.remove();
+      selectRoad(obj.properties.k as string, { km: Number(obj.properties.m), push: true });
+      return;
+    }
     const feats = map.queryRenderedFeatures(box, { layers: ["roads"] });
     if (!feats.length) { // empty map: deselect
       if (current.kind === "road") back(true); else if (selected) clearSelection();
@@ -388,7 +425,8 @@ export function initMap(root: HTMLElement) {
       <div class="data-list">${DATA_GROUPS.map((g) => `
         <div class="data-grp">${esc(T[g.label])}</div>${g.items.map((d) => `
         <div class="data-row">
-          <label><input type="checkbox" data-show="${d.id}" ${shownData.has(d.id) ? "checked" : ""}/>${esc(T[d.label])}</label>
+          <label><input type="checkbox" data-show="${d.id}" ${shownData.has(d.id) ? "checked" : ""}/>${d.object
+            ? `<span class="dot" style="background:${OBJECT_COLOR[d.object]}"></span>` : ""}${esc(T[d.label])}</label>
           ${d.colour ? `<input type="radio" name="colour" class="colour-pick" data-colour="${d.colour}"
             aria-label="${esc(s.colour_by_long)}: ${esc(T[d.label])}" ${mode === d.colour ? "checked" : ""}/>` : ""}
         </div>`).join("")}`).join("")}
@@ -430,7 +468,8 @@ export function initMap(root: HTMLElement) {
     if (box.dataset.show) {
       const id = box.dataset.show as DataId;
       if (box.checked) shownData.add(id); else shownData.delete(id);
-      store("borna.data", JSON.stringify([...shownData]));
+      store("borna.data.v2", JSON.stringify([...shownData]));
+      applyObjects();
       if (current.kind === "road") { stopStrip?.(); stopStrip = null; current.render(); } // open road follows
       return;
     }
@@ -789,6 +828,8 @@ export function initMap(root: HTMLElement) {
       <p class="src">${esc(s.sources)}: ${sources.map(esc).join(" · ")}</p></section>`;
 
     if (onMap) {
+      view.querySelectorAll<HTMLButtonElement>(".near").forEach((b) =>
+        b.addEventListener("click", () => selectRoad(road.key, { km: Number(b.dataset.km) })));
       const stripEl = view.querySelector<HTMLElement>("#mini-strip");
       if (stripEl) stopStrip = liveStrip(stripEl, road, s, { compact: true, only: stripOnly });
       view.querySelector("#fit")!.addEventListener("click", () => road.bbox && map.fitBounds(
@@ -830,6 +871,11 @@ export function initMap(root: HTMLElement) {
       };
       switch (d.id) {
         case "category": val = cat(road.category); src = roadSrc; break;
+        case "eroad": { // routes can share a stretch (E60 and E68): list all
+          const es = (road.attributes.eroad ?? []).filter(([f, t]) => km >= f - 1e-6 && km <= t + 1e-6);
+          if (es.length) { val = [...new Set(es.map((e) => e[2]))].sort().join(", "); src = es[0][3]; }
+          break;
+        }
         case "owner":
           val = T[`owner_${OWNER_OF[road.category] ?? "private"}`] + (road.owner ? ` · ${road.owner}` : "");
           src = roadSrc; break;
@@ -854,11 +900,18 @@ export function initMap(root: HTMLElement) {
         case "maxspeed": take(ev("maxspeed"), (v) => (/^\d+$/.test(v) ? `${v} km/h` : v)); break;
         case "aadt": take(ev("aadt"), (v) => `${Number(v).toLocaleString(locale)} ${s.vehicles_day}`); break;
       }
+      if (d.object) continue; // listed under "Nearby" below
       rows.push([T[d.label], val ?? s.none_here, val == null ? undefined : src]);
     }
+    // Ticked point objects within 2 km of the point, nearest first.
+    const objTypes = new Set(DATA_TYPES.filter((d) => d.object && shownData.has(d.id)).map((d) => d.object));
+    const near = (road.objects ?? []).filter(([k, t]) => objTypes.has(t as never) && Math.abs(k - km) <= 2)
+      .sort((a, b) => Math.abs(a[0] - km) - Math.abs(b[0] - km)).slice(0, 6);
     return `<h3 class="at-point-h">${esc(s.at_point)}</h3>
       <dl class="facts at-point">${rows.map(([l, v, src]) =>
-        `<dt>${esc(l)}</dt><dd>${esc(v)}${src ? srcTag(src) : ""}</dd>`).join("")}</dl>`;
+        `<dt>${esc(l)}</dt><dd>${esc(v)}${src ? srcTag(src) : ""}</dd>`).join("")}
+      ${near.length ? `<dt>${esc(s.nearby)}</dt><dd>${near.map(([k, t, n, r]) =>
+        `<button type="button" class="near" data-km="${k}"><span class="dot" style="background:${OBJECT_COLOR[t as keyof typeof OBJECT_COLOR]}"></span><span><span class="mono small muted">km ${formatKm(k)}</span> ${esc(objectLabel(t, n, r))}</span></button>`).join("")}${srcTag("osm")}</dd>` : ""}</dl>`;
   }
 
   function countyAtKm(road: Road, km: number | undefined): string | null {

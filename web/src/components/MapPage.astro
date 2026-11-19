@@ -188,6 +188,11 @@ const layers = [
   .at-point-h { font-size: 15px; margin: 2px 0 8px; color: var(--ink); }
   .at-point { margin: 0 0 16px; }
   .at-point .src-tag { display: block; font-size: 11.5px; color: var(--ink-3); }
+  .near { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; border: 0; background: none; padding: 1px 0; cursor: pointer;
+    text-align: left; color: var(--ink); font-size: 14px; }
+  .near:hover { text-decoration: underline; }
+  .near .dot { transform: translateY(1px); }
+  .near .dot, .data-row .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1.5px #fff inset; }
   .legend-box {
     position: absolute; left: 12px; bottom: calc(28px + var(--sheet-visible, 0px)); border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--shadow);

@@ -79,7 +79,7 @@ CREATE TABLE attribute_event (
     km_from      numeric(9,3) NOT NULL,
     km_to        numeric(9,3) NOT NULL,
     type         text NOT NULL CHECK (type IN
-                   ('surface', 'lanes', 'maxspeed', 'aadt', 'width', 'bridge', 'tunnel', 'works', 'ten_t')),
+                   ('surface', 'lanes', 'maxspeed', 'aadt', 'width', 'bridge', 'tunnel', 'works', 'ten_t', 'eroad')),
     value        text NOT NULL,
     source_id    text NOT NULL REFERENCES source,
     source_date  date NOT NULL,

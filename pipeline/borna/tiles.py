@@ -28,6 +28,7 @@ from borna.romania import county_code
 
 WEB_DATA = ROOT / "web" / "public" / "data"
 MIN_ZOOM = {"A": 5, "DX": 5, "DN": 5, "V": 7, "DJ": 7, "DC": 9, "DP": 10}
+OBJECT_MIN_ZOOM = {"border": 6, "junction": 8, "toll": 8, "level_crossing": 11}
 COORD_DECIMALS = 6          # ~0.1 m
 SIMPLIFY_M = 2              # per-road JSON geometry, in Stereo 70
 
@@ -94,6 +95,17 @@ def export_tiles(conn, tmp: Path) -> None:
                 'geometry', ST_AsGeoJSON(x.geom, {COORD_DECIMALS})::json)
             FROM ({EVENT_GEOM_SQL}) x
             WHERE NOT ST_IsEmpty(x.geom) AND {value} IS NOT NULL""", (typ,))
+    # Point objects (level crossings, interchanges, borders, tolls) with their road and km.
+    layers["objects"] = _geojsonseq(conn, tmp / "objects.geojsonl", f"""
+        SELECT json_build_object(
+            'type', 'Feature',
+            'tippecanoe', json_build_object('minzoom', CASE p.type {" ".join(
+                f"WHEN '{k}' THEN {z}" for k, z in OBJECT_MIN_ZOOM.items())} ELSE 11 END),
+            'properties', json_strip_nulls(json_build_object(
+                'y', p.type, 'n', p.props->>'name', 'x', p.props->>'ref',
+                'k', {ROAD_KEY_SQL}, 'r', r.ref, 'm', p.km)),
+            'geometry', ST_AsGeoJSON(p.geom, {COORD_DECIMALS})::json)
+        FROM borna.point_object p JOIN borna.road r USING (road_id)""")
     # Motorways, expressways and national roads under construction (not part of the network).
     layers["construction"] = _geojsonseq(conn, tmp / "construction.geojsonl", f"""
         SELECT json_build_object(
@@ -138,6 +150,12 @@ def export_roads(conn) -> int:
             FROM borna.attribute_event ORDER BY road_id, type, km_from"""):
         attrs.setdefault(road_id, {}).setdefault(typ, []).append(
             [float(f), float(t), value, source])
+
+    objects: dict[int, list] = {}
+    for road_id, km, typ, name, ref in conn.execute("""
+            SELECT road_id, km, type, props->>'name', props->>'ref'
+            FROM borna.point_object ORDER BY road_id, km"""):
+        objects.setdefault(road_id, []).append([float(km), typ, name, ref])
 
     owners = {(ref, county): owner for ref, county, owner in conn.execute("""
         SELECT ref, county, min(owner) FROM borna.register_entry
@@ -197,6 +215,7 @@ def export_roads(conn) -> int:
             "bbox": [float(v) for v in bbox] if bbox else None,
             "segments": segments.get(road_id, []),
             "attributes": attrs.get(road_id, {}),
+            "objects": objects.get(road_id, []),  # [km, type, name, ref]
         }
         if county is None and ref in counties:
             doc["counties"] = counties[ref]
