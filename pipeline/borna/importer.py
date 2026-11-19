@@ -158,6 +158,8 @@ SUMMARY_SQL = {
                count(*) FILTER (WHERE ref IS NOT NULL) AS with_ref FROM raw.osm_roads
         UNION ALL SELECT 'raw.osm_road_points', count(*),
                count(*) FILTER (WHERE kind = 'milestone') FROM raw.osm_road_points
+        UNION ALL SELECT 'raw.osm_ferries', count(*), count(*) FILTER (WHERE name IS NOT NULL)
+            FROM raw.osm_ferries
         UNION ALL SELECT 'raw.osm_road_routes', count(*),
                count(*) FILTER (WHERE ref IS NOT NULL) FROM raw.osm_road_routes
     """,

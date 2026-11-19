@@ -282,6 +282,10 @@ export function initMap(root: HTMLElement) {
         "icon-text-fit": "both", "icon-text-fit-padding": [1, 4, 1, 4], "text-padding": 6,
       },
       paint: { "text-color": "#ffffff" } });
+    // Ferry crossings: dashed lines over water, shown with the ferry terminals.
+    if (!map.getLayer("ferries")) map.addLayer({ id: "ferries", type: "line", source: "borna", "source-layer": "ferries",
+      layout: { "line-join": "round", visibility: shownData.has("obj_ferry") ? "visible" : "none" },
+      paint: { "line-color": OBJECT_COLOR.ferry, "line-width": 2, "line-dasharray": [2, 1.5] } });
     // Point objects (level crossings, interchanges, borders, tolls): dots, ticked in the data list.
     map.addLayer({ id: "objects", type: "circle", source: "borna", "source-layer": "objects",
       paint: {
@@ -298,6 +302,7 @@ export function initMap(root: HTMLElement) {
     if (!map.getLayer("objects")) return;
     const types = DATA_TYPES.filter((d) => d.object && shownData.has(d.id)).map((d) => d.object!);
     map.setFilter("objects", ["in", ["get", "y"], ["literal", types]]);
+    if (map.getLayer("ferries")) map.setLayoutProperty("ferries", "visibility", types.includes("ferry") ? "visible" : "none");
   }
 
   // "Nod rutier 5 · Bărcănești", "Punct de trecere a frontierei · Borș"

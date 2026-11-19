@@ -28,7 +28,7 @@ from borna.romania import county_code
 
 WEB_DATA = ROOT / "web" / "public" / "data"
 MIN_ZOOM = {"A": 5, "DX": 5, "DN": 5, "V": 7, "DJ": 7, "DC": 9, "DP": 10}
-OBJECT_MIN_ZOOM = {"border": 6, "junction": 8, "toll": 8, "level_crossing": 11}
+OBJECT_MIN_ZOOM = {"border": 6, "ferry": 6, "junction": 8, "toll": 8, "level_crossing": 11}
 COORD_DECIMALS = 6          # ~0.1 m
 SIMPLIFY_M = 2              # per-road JSON geometry, in Stereo 70
 
@@ -106,6 +106,16 @@ def export_tiles(conn, tmp: Path) -> None:
                 'k', {ROAD_KEY_SQL}, 'r', r.ref, 'm', p.km)),
             'geometry', ST_AsGeoJSON(p.geom, {COORD_DECIMALS})::json)
         FROM borna.point_object p JOIN borna.road r USING (road_id)""")
+    # Ferry crossings, drawn as dashed lines when ferries are ticked.
+    if conn.execute("SELECT to_regclass('raw.osm_ferries') IS NOT NULL").fetchone()[0]:
+        layers["ferries"] = _geojsonseq(conn, tmp / "ferries.geojsonl", f"""
+            SELECT json_build_object(
+                'type', 'Feature', 'tippecanoe', json_build_object('minzoom', 6),
+                'properties', json_strip_nulls(json_build_object('n', f.name)),
+                'geometry', ST_AsGeoJSON(f.geom, {COORD_DECIMALS})::json)
+            FROM raw.osm_ferries f
+            WHERE EXISTS (SELECT 1 FROM borna.point_object p
+                          WHERE p.type = 'ferry' AND (p.props->>'osm_id')::bigint = f.osm_id)""")
     # Motorways, expressways and national roads under construction (not part of the network).
     layers["construction"] = _geojsonseq(conn, tmp / "construction.geojsonl", f"""
         SELECT json_build_object(

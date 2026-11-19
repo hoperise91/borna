@@ -78,6 +78,18 @@ local counties = osm2pgsql.define_table({
     },
 })
 
+-- Ferry crossings (route=ferry): the Danube crossings link roads where there is no bridge.
+local ferries = osm2pgsql.define_table({
+    name = 'osm_ferries',
+    schema = SCHEMA,
+    ids = { type = 'way', id_column = 'osm_id' },
+    columns = {
+        { column = 'name', type = 'text' },
+        { column = 'tags', type = 'jsonb' },
+        { column = 'geom', type = 'linestring', projection = SRID, not_null = true },
+    },
+})
+
 -- Named places, to orient roads whose official route runs from one locality to another.
 local PLACE_TYPES = {
     city = true, town = true, village = true, hamlet = true, suburb = true,
@@ -121,6 +133,10 @@ end
 
 function osm2pgsql.process_way(object)
     local t = object.tags
+    if t.route == 'ferry' then
+        ferries:insert({ name = t.name, tags = t, geom = object:as_linestring() })
+        return
+    end
     local hw = t.highway
     if not (ROAD_TYPES[hw] or (hw == 'service' and t.ref)) then return end
     roads:insert({
