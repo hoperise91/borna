@@ -26,6 +26,7 @@ export interface Road {
   attributes: Record<string, Event[]>;
   counties?: [string, number | null, number | null, number | null][];
   through?: string[]; // counties passed (roads without HG 540 county sections)
+  now_national?: string; // county road HG 540 still lists, now this national road (DJ113 CV → DN11C)
 }
 
 // [key, ref, county, category, route, bbox, status, counties passed through]

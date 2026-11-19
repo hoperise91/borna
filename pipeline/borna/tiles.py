@@ -13,6 +13,7 @@
 Run after `make lrs attributes qa`. The files are generated, not committed.
 """
 
+import csv
 import json
 import shutil
 import subprocess
@@ -157,6 +158,23 @@ def export_roads(conn) -> int:
             WHERE r.source_id = 'osm' GROUP BY 1"""):
         geo_counties[road_id] = sorted(county_code(n) for n in names)
 
+    # County roads HG 540 still lists although the road on the ground is a national road of about
+    # the same length (DJ113 Covasna = DN11C since its transfer to the state): note it on the page.
+    official_len = {ref: float(n) for ref, n in conn.execute(
+        "SELECT ref, length_official FROM borna.road WHERE county IS NULL AND length_official > 0")}
+    now_national: dict[tuple, str] = {}
+    claims = DATA_OUT / "lrs" / "route_claims_dropped.csv"
+    if claims.exists():
+        county_len = {(ref, c): float(n) for ref, c, n in conn.execute(
+            "SELECT ref, county, length_official FROM borna.road "
+            "WHERE category IN ('DJ', 'DC') AND length_official > 0")}
+        with open(claims, encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                own, nat = county_len.get((row["ref"], row["county"])), \
+                    official_len.get(row["national"])
+                if own and nat and float(row["km"]) >= 0.5 * own and abs(nat - own) <= 0.25 * own:
+                    now_national[(row["ref"], row["county"])] = row["national"]
+
     index = []
     for (road_id, key, ref, county, category, route, km_from, km_to, length, legal,
          status, path_km, orientation, n_ctrl, n_ms, bbox) in conn.execute(f"""
@@ -182,6 +200,8 @@ def export_roads(conn) -> int:
         }
         if county is None and ref in counties:
             doc["counties"] = counties[ref]
+        if (ref, county) in now_national:
+            doc["now_national"] = now_national[(ref, county)]
         short = route.split(" | ")[0] if route else ""
         through = (sorted({c[0] for c in counties.get(ref, [])}) or geo_counties.get(road_id, [])) \
             if county is None else []

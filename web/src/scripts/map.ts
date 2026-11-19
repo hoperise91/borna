@@ -656,6 +656,7 @@ export function initMap(root: HTMLElement) {
         <div class="small muted">${esc(road.county ? countyName(road.county) : s.national_road)}</div></div></div>
       <p class="detail-route">${esc(road.route ?? "")}</p>
       ${road.lrs.status === "osm_only" ? `<p class="note small">${esc(s.not_in_register_note)}</p>` : ""}
+      ${road.now_national ? `<p class="note small">${esc(s.now_national_note.replace("{ref}", road.now_national))}</p>` : ""}
       ${here ? `<div class="here"><span class="small muted">${esc(s.here)}</span>
         <span class="km">km ${formatKm(here.km)}</span>
         <span class="q" data-q="${here.quality}" title="${esc((s as Record<string, string>)[`q_${here.quality}_long`])}">${esc(qual(here.quality))}</span></div>` : ""}

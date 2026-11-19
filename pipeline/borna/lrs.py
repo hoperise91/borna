@@ -126,6 +126,36 @@ def build_way_refs(conn) -> None:
     for (name,) in conn.execute("SELECT DISTINCT county FROM borna.osm_way_county").fetchall():
         conn.execute("UPDATE borna.osm_way_county SET county = %s WHERE county = %s",
                      (county_code(name), name))
+    conn.execute("""
+        -- HG 540 still lists some county roads that were transferred to the state and renumbered
+        -- (DJ113 Covasna = DN11C); OSM route relations may still bundle them on the national road.
+        -- Such a duplicate gives its national-tagged ways up: when most of its official length lies
+        -- on ways tagged as one registered national road of about the same official length.
+        -- Ordinary shared stretches (DJ391 along DN38) stay: they hold county routes together.
+        CREATE TEMP TABLE route_claims AS
+        SELECT x.osm_id, x.ref, c.county, min(n.ref) AS national,
+               ST_Length(w.geom::geography) AS m
+        FROM borna.osm_way_ref x
+        JOIN borna.osm_way_ref n ON n.osm_id = x.osm_id AND n.via_tag
+                                AND n.category IN ('A', 'DX', 'DN', 'V')
+        JOIN raw.osm_roads w ON w.osm_id = x.osm_id
+        JOIN borna.osm_way_county c ON c.osm_id = x.osm_id
+        WHERE NOT x.via_tag AND x.category IN ('DJ', 'DC')
+        GROUP BY x.osm_id, x.ref, c.county, w.geom;
+        CREATE TEMP TABLE route_claims_dropped AS
+        SELECT rc.* FROM route_claims rc
+        JOIN (SELECT rc2.ref, rc2.county, rc2.national
+              FROM route_claims rc2
+              JOIN borna.road cr ON cr.ref = rc2.ref AND cr.county = rc2.county
+              JOIN borna.road nr ON nr.ref = rc2.national AND nr.county IS NULL
+                                AND nr.source_id <> 'osm'
+              GROUP BY rc2.ref, rc2.county, rc2.national, cr.length_official, nr.length_official
+              HAVING sum(rc2.m) >= 500 * cr.length_official
+                 AND abs(nr.length_official - cr.length_official) <= 0.25 * cr.length_official
+             ) dup USING (ref, county, national);
+        DELETE FROM borna.osm_way_ref x USING route_claims_dropped d
+        WHERE x.osm_id = d.osm_id AND x.ref = d.ref;
+    """)
 
 
 # --- 2. centreline ---------------------------------------------------------------------
@@ -809,6 +839,11 @@ def main() -> int:
         n_ways, n_refs = conn.execute(
             "SELECT count(DISTINCT osm_id), count(DISTINCT ref) FROM borna.osm_way_ref").fetchone()
         print(f"lrs: {n_ways:,} ways carry {n_refs:,} distinct road numbers")
+        dropped = conn.execute("""
+            SELECT ref, county, national, count(*), round((sum(m) / 1000)::numeric, 1)
+            FROM route_claims_dropped GROUP BY 1, 2, 3 ORDER BY 5 DESC""").fetchall()
+        print(f"lrs: {sum(r[3] for r in dropped):,} ways tagged as national roads were not given "
+              f"to county-road relations ({len(dropped)} roads, route_claims_dropped.csv)")
         results, held_out = build(conn, holdout)
         conn.commit()
         checkpoints = check_checkpoints(conn)
@@ -845,6 +880,10 @@ def main() -> int:
         w = csv.writer(f)
         w.writerow(["ref", "category", "ways"])
         w.writerows(unknown)
+    with open(out / "route_claims_dropped.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["ref", "county", "national", "ways", "km"])
+        w.writerows(dropped)
     with open(out / "checkpoints.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(checkpoints[0]) if checkpoints else ["road"])
         w.writeheader()

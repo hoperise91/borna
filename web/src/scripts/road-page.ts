@@ -48,6 +48,7 @@ export async function initRoadPage(root: HTMLElement) {
     </div>
     <p class="rp-route">${esc(road.route ?? "")}</p>
     ${road.lrs.status === "osm_only" ? `<p class="rp-note" style="margin:-12px 0 18px">${esc(s.not_in_register_note)}</p>` : ""}
+    ${road.now_national ? `<p class="rp-note" style="margin:-12px 0 18px">${esc(s.now_national_note.replace("{ref}", road.now_national))}</p>` : ""}
 
     <div class="rp-grid">
       <div class="rp-map" id="rp-map">${onMap ? "" : `<p class="msg" style="padding:16px">${esc(s.not_on_map)}</p>`}</div>
