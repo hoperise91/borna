@@ -13,7 +13,7 @@
 
 ## Progress (updated 2026-11-22)
 
-**Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: the data-list redesign (Next steps 3), then NVDB-style batch 1 (§ "Next steps" below).
+**Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: NVDB-style batch 2 (Phase 4, item 8): curves first (own geometry, no downloads), then built-up stretches, then gradient (Copernicus DEM, largest). Batch 1 is done except DRDP (on hold for an official source).
 
 | Phase / step | Status | Notes |
 |---|---|---|
