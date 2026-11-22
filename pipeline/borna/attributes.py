@@ -4,6 +4,7 @@ Every attribute value is placed on a road's km range and keeps its source, date 
   - OSM, per way on the road: surface, lanes, maxspeed, width, bridge, tunnel (values as tagged)
   - open AADT (Directive 2002/49/CE major-roads reporting, data.gov.ro): aadt per section
   - European routes (OSM route relations network=e-road): eroad = 'E60' on the roads they follow
+  - horizontal curves from Bornă's own (OSM-derived) centrelines: curve (see curves.py)
 
 A way or section is placed by measuring its two ends on the road's calibrated segments (as
 borna.measure() does, but in memory), kept only if its midpoint lies on the road (within
@@ -22,6 +23,7 @@ from shapely.geometry import LineString, Point
 
 from borna import sources
 from borna.config import CRS_METRIC, PG_DSN
+from borna.curves import curve_events
 from borna.lrs import normalise_osm_ref
 
 ON_ROAD_M = 30         # an OSM way's midpoint must be this close to the road's centreline
@@ -180,7 +182,8 @@ def eroad_events(conn, manifest: dict, roads, by_key) -> None:
 def main() -> int:
     with psycopg.connect(PG_DSN) as conn:
         roads, by_key = load_roads(conn)
-        for source_id, fn in (("osm", osm_events), ("osm", eroad_events), ("aadt_end", aadt_events)):
+        for source_id, fn in (("osm", osm_events), ("osm", eroad_events), ("osm", curve_events),
+                               ("aadt_end", aadt_events)):
             manifest = sources.read_manifest(source_id)
             if not manifest:
                 print(f"attributes: {source_id}: no download, skipped", file=sys.stderr)

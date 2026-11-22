@@ -1,12 +1,12 @@
 // Strip diagram: the road as a horizontal km ruler with one band per property.
 import type { Strings } from "./i18n";
 import {
-  type Road, type Event, QUALITY_COLOR, SURFACE_COLOR, aadtColor, formatKm, speedColor,
+  type Road, type Event, CURVE_COLOR, QUALITY_COLOR, parseCurve, SURFACE_COLOR, aadtColor, formatKm, speedColor,
   surfaceClass,
 } from "./roads";
 
 interface Band {
-  id: string; // data type: surface, lanes, maxspeed, aadt, structures, quality
+  id: string; // data type: surface, lanes, maxspeed, aadt, structures, curve, quality
   label: string;
   items: { f: number; t: number; color: string; text: string }[];
   ticks?: boolean; // narrow marks (bridges, tunnels)
@@ -56,6 +56,16 @@ export function bands(road: Road, s: Strings): Band[] {
     ...ev("tunnel").map(([f, t]) => ({ f, t, color: "#2b2b2b", text: s.tunnel })),
   ];
   if (structures.length) out.push({ id: "structures", label: `${s.bridge} / ${s.tunnel}`, items: structures, ticks: true });
+  if (ev("curve").length) {
+    const T = s as Record<string, string>;
+    out.push({
+      id: "curve", label: s.curves, ticks: true,
+      items: ev("curve").map(([f, t, v]) => {
+        const c = parseCurve(v);
+        return { f, t, color: CURVE_COLOR[c.cls] ?? "#999", text: `${T[`curve_${c.side}`]}, R ≈ ${c.r} m (${T[`c_${c.cls}`]})` };
+      }),
+    });
+  }
   out.push({
     id: "quality", label: s.km_quality,
     items: road.segments.map(([f, t, q]) => ({

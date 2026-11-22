@@ -10,7 +10,7 @@ import type { Strings } from "../lib/i18n";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, DATA_URL, QUALITY_COLOR, SURFACE_COLOR, type IndexRow,
   type LonLat, type Quality, type Road, fetchIndex, fetchRoad, fold, formatKm, formatLength,
-  locate, measure, parseQuery, qualityShares, fetchSources, surfaceClass, type Event,
+  locate, measure, parseQuery, qualityShares, fetchSources, surfaceClass, parseCurve, type Event,
   roadHref,
 } from "../lib/roads";
 import { liveStrip, stripBands } from "../lib/strip";
@@ -846,7 +846,7 @@ export function initMap(root: HTMLElement) {
     const through = road.counties ? [...new Set(road.counties.map((c) => c[0]))] : road.through ?? [];
     const srcIds = new Set(Object.values(road.attributes).flat().map((e) => e[3]));
     // The strip shows the ticked data types that are drawn along the road.
-    const stripOnly = ["surface", "lanes", "maxspeed", "aadt", "structures"].filter((id) => shownData.has(id as DataId));
+    const stripOnly = ["surface", "lanes", "maxspeed", "aadt", "structures", "curve"].filter((id) => shownData.has(id as DataId));
     const stripLabels = onMap ? stripBands(road, s, { compact: true, only: stripOnly }).map((b) => b.label) : [];
     const sources = [road.legal_source?.split(" (")[0] ?? (road.lrs.status === "osm_only" ? "" : "HG 540/2000"),
       onMap ? "© OpenStreetMap (ODbL)" : "", srcIds.has("aadt_end") ? "MMAP, data.gov.ro (CC BY 4.0)" : ""].filter(Boolean);
@@ -964,6 +964,14 @@ export function initMap(root: HTMLElement) {
           const b = ev("bridge"), t = ev("tunnel");
           val = b ? s.bridge : t ? s.tunnel : null;
           src = (b ?? t)?.[3];
+          break;
+        }
+        case "curve": { // no curve here = straight, as far as the geometry shows
+          const c = ev("curve");
+          if (c) {
+            const p = parseCurve(c[2]);
+            val = `${T[`curve_${p.side}`]}, R ≈ ${p.r} m (${T[`c_${p.cls}`]})`; src = c[3];
+          } else if (road.segments.length) { val = s.curve_straight; src = "osm"; }
           break;
         }
         case "maxspeed": take(ev("maxspeed"), (v) => (/^\d+$/.test(v) ? `${v} km/h` : v)); break;

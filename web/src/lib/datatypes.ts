@@ -4,7 +4,7 @@ import type { Strings } from "./i18n";
 
 export type Mode = "category" | "surface" | "maxspeed" | "aadt" | "width" | "owner";
 export type ObjectType = "junction" | "level_crossing" | "border" | "toll" | "ferry";
-export type DataId = "category" | "owner" | "eroad" | "surface" | "lanes" | "width" | "structures"
+export type DataId = "category" | "owner" | "eroad" | "surface" | "lanes" | "width" | "structures" | "curve"
   | "maxspeed" | "aadt" | `obj_${ObjectType}`;
 
 /** colour: can colour the map; object: a point object type, shown as map dots and listed nearby. */
@@ -21,6 +21,7 @@ export const DATA_GROUPS: { label: keyof Strings; items: DataType[] }[] = [
     { id: "lanes", label: "lanes" },
     { id: "width", label: "layer_width", colour: "width" },
     { id: "structures", label: "structures" },
+    { id: "curve", label: "curves" },
   ] },
   { label: "grp_traffic", items: [
     { id: "maxspeed", label: "layer_maxspeed", colour: "maxspeed" },

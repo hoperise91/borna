@@ -230,3 +230,13 @@ export function roadHref(roadBase: string, lang: string, key: string, category?:
     ? `${roadBase}${encodeURIComponent(key)}/`
     : `${roadBase}?r=${encodeURIComponent(key)}`;
 }
+
+// Horizontal curves (Phase 4.8): event value '<class>:<R m>:<L|R>:<turn deg>', tighter = darker.
+export const CURVE_CLASSES = ["hairpin", "very_sharp", "sharp", "moderate"] as const;
+export const CURVE_COLOR: Record<string, string> = {
+  hairpin: "#7a1f12", very_sharp: "#c0392b", sharp: "#e67e22", moderate: "#f2c48d",
+};
+export function parseCurve(v: string): { cls: string; r: number; side: "L" | "R"; turn: number } {
+  const [cls, r, side, turn] = v.split(":");
+  return { cls, r: Number(r), side: side === "L" ? "L" : "R", turn: Number(turn) };
+}
