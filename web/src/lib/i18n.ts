@@ -9,6 +9,8 @@ export type Page = keyof (typeof routes)["ro"];
 
 /** Public contact (Cloudflare Email Routing → the owner's inbox). */
 export const CONTACT_EMAIL = "contact@bornakm.ro";
+/** The person behind the project (About → Contact, JSON-LD founder). */
+export const AUTHOR = { name: "Ádám Jakab", linkedin: "https://www.linkedin.com/in/jakabadam/" };
 
 const ro = {
   tagline: "Baza de date deschisă a drumurilor din România",
