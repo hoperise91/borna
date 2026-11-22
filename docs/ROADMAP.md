@@ -11,7 +11,7 @@
 
 ---
 
-## Progress (updated 2026-11-19)
+## Progress (updated 2026-11-22)
 
 **Phases 1–3 done: live at https://bornakm.ro since 2026-11-19.** Next session: the data-list redesign (Next steps 3), then NVDB-style batch 1 (§ "Next steps" below).
 
@@ -27,6 +27,7 @@
 | 2 Attributes | ✅ | surface, lanes, speed, width, bridges, tunnels, AADT on km ranges with source/date/licence |
 | 2 QA | ✅ | `make qa`: register vs INS vs OSM per county, surfaces, gap report |
 | 3 Portal | ✅ live | https://bornakm.ro (Cloudflare Pages, auto-deploy from GitHub `hoperise91/borna` main); data on R2 at https://data.bornakm.ro |
+| 3 SEO | ✅ 2026-11-22 | prerendered road pages `/drum/<KEY>/` (all) + `/en/road/<KEY>/` (A/DX/DN/V/DJ), sitemap.xml (~10.7k URLs), robots.txt, JSON-LD, meta/hreflang |
 
 **What the portal does now:** map with click/hover on roads, county → road browsing, search incl. `DN1 km 27+400`, road panel and road page (strip diagram, every value with its source), layer modes (category, surface, speed, traffic, width, administrator), background maps (light, dark, detailed, MapTiler terrain + satellite, none), road-type toggles, road-number labels, dashed sections under construction, data and about pages.
 
@@ -42,10 +43,10 @@
 3. ~~Data-list redesign~~ ✅ 2026-11-19: hover shows the colouring's value only; top tabs replaced by one "Colorează: …" button; "Date în panou" list in the map panel (grouped, tick = shown in the road panel, circle = colours the map, remembered); road panel "La acest punct" with value + source · date per ticked type; strip follows the ticks. Point-object rows (bridges, level crossings, junctions…) arrive with batch 1.
 - 2026-11-19, after review of the owner's private km-stone checkpoints: all 11 lie on Bornă's line (≤6 m), errors are along the km only — long gaps between fixed points (DN13E: 87 km, 600 m off at km 50) and vague county-road starts ("Sfântu Gheorghe – …"). Fix chosen (option b): the panel shows the distance to the nearest reference point next to the km quality (`lrs_road.controls_km`). The real cure is more OSM milestones; guide for adding them from Mapillary/KartaView (not Google Street View): https://claude.ai/artifact/Two1ADkDPjaj5PFk3gEofb
 4. **NVDB-style attributes, batch 1** (Phase 4.7) ◐ 2026-11-19: ✅ E-roads (`eroad` on national roads), ✅ interchanges, level crossings, border crossings, tolls (`make objects`, map dots + "În apropiere" in the panel). ✅ ferries (car ferries only: 17 terminals on 11 roads, e.g. DN3 Ostrov km 127+389/128+780 vs HG 540's 127+573–128+800; passenger boats left out). **DRDP per DN: on hold**: CNAIR's subunits page lists the 8 DRDPs (incl. the newer DRDP Buzău) but not their counties/sections; secondary lists disagree on split counties (Alba, Gorj, Ialomița, Călărași). Needs each DRDP's own SDN list (their websites) or the current CNAIR act; don't publish a guessed mapping. Then gradient and curves (4.8).
-5. Bridges/tunnels as point objects, Mapillary signs, "report an error" link (Phase 4). ~~DN roads missing from HG 540~~ ✅ 2026-11-19: 36 national roads from OSM (incl. Centura Brașov, Făgăraș and Sfântu Gheorghe bypasses); review list in `data/out/lrs/osm_only.csv`; named bypasses (Centura/Varianta) also count at ≥1 km and when tagged secondary (Beclean, Brănești); county roads whose relation claims national-tagged ways for ≥50% of their official length give them up (DJ113 CV, DJ156 PH, DC35 IL) (A8/A13/DX6 under construction, Centura Beclean 1.5 km, Brănești bypass tagged secondary, …).
+5. Bridges/tunnels as point objects, Mapillary signs (Phase 4). ~~"Report an error" link~~ ✅ 2026-11-22: contact@bornakm.ro (Cloudflare Email Routing → owner's Gmail; receive only, no "send as" yet), on `/despre/` and as a mailto with the road in the subject on every road page. ~~DN roads missing from HG 540~~ ✅ 2026-11-19: 36 national roads from OSM (incl. Centura Brașov, Făgăraș and Sfântu Gheorghe bypasses); review list in `data/out/lrs/osm_only.csv`; named bypasses (Centura/Varianta) also count at ≥1 km and when tagged secondary (Beclean, Brănești); county roads whose relation claims national-tagged ways for ≥50% of their official length give them up (DJ113 CV, DJ156 PH, DC35 IL) (A8/A13/DX6 under construction, Centura Beclean 1.5 km, Brănești bypass tagged secondary, …).
 6. Waiting on others (rechecked 2026-11-19: still down): ANCPI orthophoto (0.5 m), geoportal.ancpi.ro has no DNS record at all, so the service may have moved; TENtec, tentec.transport.ec.europa.eu answers 503 → EC "server temporarily unavailable" page; Phase 5 requests (CESTRIN traffic census, widths, bridge inventory).
 
-**Open with the owner (2026-11-19 evening):** contact address — owner decides tomorrow between (1) Cloudflare Email Routing to Gmail + Gmail "Send mail as" via a free SMTP relay (e.g. Brevo), or (2) a separate mailbox (Zoho free / paid Proton, Fastmail, Workspace); then add a "report an error" link. Cloudflare Web Analytics enabled but needs the next Pages deployment to inject its beacon (check bornakm.ro HTML for static.cloudflareinsights.com after the next push). Cache rule, billing alert, old R2 token deleted: done.
+**Open with the owner (2026-11-22):** submit `https://bornakm.ro/sitemap.xml` in Google Search Console (Domain property `bornakm.ro`, verify with a DNS TXT record in Cloudflare) and Bing Webmaster Tools (can import from Google). Done 2026-11-22: contact address (Email Routing, MX/SPF/DKIM records added by Cloudflare), Cloudflare Web Analytics beacon confirmed on the live pages. Earlier: cache rule, billing alert, old R2 token deleted.
 
 ### Resuming
 `make db-up` (PostGIS in Docker keeps all data) · `make web-dev` → http://localhost:4321.

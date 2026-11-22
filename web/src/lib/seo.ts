@@ -1,6 +1,6 @@
 // Titles, descriptions and JSON-LD for prerendered pages. Pure functions (no I/O).
 import { countyName } from "./counties";
-import { strings, type Lang } from "./i18n";
+import { CONTACT_EMAIL, strings, type Lang } from "./i18n";
 import type { IndexRow } from "./roads";
 
 export const SITE = "https://bornakm.ro";
@@ -47,6 +47,7 @@ export const organization = {
   name: "Bornă",
   url: abs("/"),
   logo: abs("/apple-touch-icon.png"),
+  email: CONTACT_EMAIL,
 };
 
 export function website(lang: Lang) {

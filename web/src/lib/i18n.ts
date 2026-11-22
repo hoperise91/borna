@@ -7,6 +7,9 @@ export const routes = {
 
 export type Page = keyof (typeof routes)["ro"];
 
+/** Public contact (Cloudflare Email Routing → the owner's inbox). */
+export const CONTACT_EMAIL = "contact@bornakm.ro";
+
 const ro = {
   tagline: "Baza de date deschisă a drumurilor din România",
   nav_map: "Hartă",
@@ -39,6 +42,8 @@ const ro = {
   meta_road_tail: "Poziții kilometrice, hartă și date despre drum.",
   other_roads_county: "Alte drumuri din județul {c}",
   other_roads_cat: "Alte drumuri: {c}",
+  report_error: "Ai găsit o greșeală? Scrie-ne",
+  report_subject: "Bornă: greșeală la {r}",
   zoom_to_road: "Arată tot drumul",
   close: "Închide",
   km_out_of_range: "Km în afara drumului",
@@ -191,6 +196,8 @@ const en: Strings = {
   meta_road_tail: "Kilometre positions, map and road data.",
   other_roads_county: "Other roads in {c} county",
   other_roads_cat: "Other roads: {c}",
+  report_error: "Found a mistake? Write to us",
+  report_subject: "Bornă: mistake on {r}",
   zoom_to_road: "Show whole road",
   close: "Close",
   km_out_of_range: "Km outside the road",

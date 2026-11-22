@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { routes, strings, type Lang } from "../lib/i18n";
+import { CONTACT_EMAIL, routes, strings, type Lang } from "../lib/i18n";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -50,6 +50,10 @@ const ro = lang === "ro";
     <p>{ro
       ? "Codul: MIT. Rețeaua derivată din OpenStreetMap: ODbL (© OpenStreetMap contributors). Registrul HG 540: act normativ, domeniu public. Celelalte surse: termenii lor originali, indicați mai sus."
       : "Code: MIT. The network derived from OpenStreetMap: ODbL (© OpenStreetMap contributors). The HG 540 register: an official act, public domain. Other sources: their original terms, listed above."}</p>
+    <h2>{ro ? "Contact" : "Contact"}</h2>
+    <p>{ro
+      ? "Greșeli, drumuri lipsă, corecturi sau cereri de retragere a unor date: "
+      : "Mistakes, missing roads, corrections or requests to take data down: "}<a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></p>
     <p class="small muted">{ro
       ? "Bornă este un proiect personal, nu un serviciu oficial. Pentru poziții oficiale, consultați administratorul drumului."
       : "Bornă is a personal project, not an official service. For official positions, ask the road's administrator."}</p>

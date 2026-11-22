@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { countyName } from "../lib/counties";
-import { routes, strings, type Lang } from "../lib/i18n";
+import { CONTACT_EMAIL, routes, strings, type Lang } from "../lib/i18n";
 import { type IndexRow, hasStaticPage, roadHref } from "../lib/roads";
 import { breadcrumbs, roadDescription, roadTitle } from "../lib/seo";
 
@@ -12,6 +12,10 @@ const { lang, row, others = [] } = Astro.props;
 const s = strings[lang];
 const S = s as Record<string, string>;
 const other: Lang = lang === "ro" ? "en" : "ro";
+
+// "Report a mistake": a mailto with the road in the subject (outside <main>, which the script re-renders).
+const reportHref = (ref: string) =>
+  `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(s.report_subject.replace("{r}", ref))}`;
 
 let seo = {};
 let othersTitle = "";
@@ -55,6 +59,9 @@ if (row) {
       <p class="muted" id="road-loading">{s.loading}</p>
     )}
   </main>
+  {row && (
+    <p class="page road-report small"><a href={reportHref(row[2] ? `${row[1]} (${countyName(row[2])})` : row[1])}>{s.report_error} →</a></p>
+  )}
   {row && others.length > 0 && (
     <nav class="page road-others" aria-label={othersTitle}>
       <h2>{othersTitle}</h2>
@@ -74,6 +81,7 @@ if (row) {
 
 <style is:global>
   .road-page { max-width: 1120px; }
+  .road-report { max-width: 1120px; padding-top: 0; padding-bottom: 0; }
   .road-others { max-width: 1120px; padding-top: 0; }
   .road-others h2 { font-size: 18px; }
   .road-others ul { list-style: none; padding: 0; margin: 0; columns: 2 320px; column-gap: 24px; font-size: 14px; }
