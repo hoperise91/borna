@@ -214,3 +214,19 @@ export function parseQuery(q: string): ParsedQuery {
   }
   return { ref: `${m[1]}${m[2]}`, km, text };
 }
+
+// ---- static road pages (SEO) -----------------------------------------------------------
+// Every road has a prerendered page at /drum/<KEY>/. English pages exist only for these
+// categories: Cloudflare Pages caps a deploy at 20k files, and DC/DP searches are Romanian.
+export const EN_PAGE_CATEGORIES = new Set(["A", "DX", "DN", "V", "DJ"]);
+
+export function hasStaticPage(lang: string, category: string): boolean {
+  return lang === "ro" || EN_PAGE_CATEGORIES.has(category);
+}
+
+/** Link to a road page: the static page when it exists, else the client page (?r=). */
+export function roadHref(roadBase: string, lang: string, key: string, category?: string): string {
+  return category && hasStaticPage(lang, category)
+    ? `${roadBase}${encodeURIComponent(key)}/`
+    : `${roadBase}?r=${encodeURIComponent(key)}`;
+}

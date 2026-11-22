@@ -8,16 +8,29 @@ interface Props {
   title?: string;
   description?: string;
   fullscreen?: boolean;
+  /** Paths of this page in each language that has it (hreflang). Default: the page's routes. */
+  alternates?: Partial<Record<Lang, string>>;
+  /** Where the language button goes, when it differs from the other language's alternate. */
+  switchHref?: string;
+  ogImage?: string;
+  noindex?: boolean;
+  jsonLd?: object[];
 }
-const { lang, page, title, description, fullscreen = false } = Astro.props;
+const {
+  lang, page, title, description, fullscreen = false,
+  alternates = { ro: routes.ro[page], en: routes.en[page] },
+  switchHref, ogImage: ogImagePath = "/og-image.png", noindex = false, jsonLd = [],
+} = Astro.props;
 const s = strings[lang];
 const r = routes[lang];
 const other: Lang = lang === "ro" ? "en" : "ro";
 const pageTitle = title ? `${title} · Bornă` : `Bornă · ${s.tagline}`;
 const pageDescription = description ?? s.tagline;
-// Link previews (iMessage, WhatsApp, Facebook…) need absolute URLs and a PNG image.
-const pageUrl = new URL(Astro.url.pathname, Astro.site).href;
-const ogImage = new URL("/og-image.png", Astro.site).href;
+// Link previews (iMessage, WhatsApp, Facebook, LinkedIn…) need absolute URLs and a PNG image.
+const abs = (p: string) => new URL(p, Astro.site).href;
+const pageUrl = abs(Astro.url.pathname);
+const ogImage = abs(ogImagePath);
+const otherHref = switchHref ?? alternates[other] ?? routes[other][page];
 ---
 <!doctype html>
 <html lang={lang}>
@@ -26,7 +39,7 @@ const ogImage = new URL("/og-image.png", Astro.site).href;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
-    <link rel="canonical" href={pageUrl} />
+    {noindex ? <meta name="robots" content="noindex,follow" /> : <link rel="canonical" href={pageUrl} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -40,8 +53,20 @@ const ogImage = new URL("/og-image.png", Astro.site).href;
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content={`Bornă · ${s.tagline}`} />
     <meta property="og:locale" content={lang === "ro" ? "ro_RO" : "en_GB"} />
+    {alternates[other] && <meta property="og:locale:alternate" content={other === "ro" ? "ro_RO" : "en_GB"} />}
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="alternate" hreflang={other} href={routes[other][page]} />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={ogImage} />
+    {!noindex && alternates.ro && alternates.en && (
+      <>
+        <link rel="alternate" hreflang="ro" href={abs(alternates.ro)} />
+        <link rel="alternate" hreflang="en" href={abs(alternates.en)} />
+        <link rel="alternate" hreflang="x-default" href={abs(alternates.ro)} />
+      </>
+    )}
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    {jsonLd.map((o) => <script type="application/ld+json" set:html={JSON.stringify(o)} />)}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -66,15 +91,20 @@ const ogImage = new URL("/og-image.png", Astro.site).href;
         <a href={r.map} aria-current={page === "map" ? "page" : undefined}>{s.nav_map}</a>
         <a href={r.data} aria-current={page === "data" ? "page" : undefined}>{s.nav_data}</a>
         <a href={r.about} aria-current={page === "about" ? "page" : undefined}>{s.nav_about}</a>
-        <a class="lang" href={routes[other][page]} hreflang={other} lang={other} data-keep-query>{s.other_lang}</a>
+        <a class="lang" href={otherHref} hreflang={other} lang={other} data-keep-query>{s.other_lang}</a>
       </nav>
     </header>
     <slot />
     <script>
-      // Keep the selected road (?r=, ?km=) when switching language.
+      // Keep the selected road (?r=, ?km=) when switching language. The link's own query
+      // (e.g. /en/road/?r=KEY for roads without an English page) wins over the current one.
       document.querySelectorAll<HTMLAnchorElement>("a[data-keep-query]").forEach((a) => {
+        const own = new URL(a.href).searchParams;
         a.addEventListener("click", () => {
-          if (location.search) a.href = a.pathname + location.search;
+          const q = new URLSearchParams(location.search);
+          own.forEach((v, k) => q.set(k, v));
+          const qs = q.toString();
+          a.href = a.pathname + (qs ? `?${qs}` : "");
         });
       });
     </script>

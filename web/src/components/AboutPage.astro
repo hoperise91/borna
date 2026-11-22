@@ -7,7 +7,7 @@ const { lang } = Astro.props;
 const s = strings[lang];
 const ro = lang === "ro";
 ---
-<Base lang={lang} page="about" title={s.nav_about}>
+<Base lang={lang} page="about" title={ro ? "Despre Bornă: surse, licențe și metodă" : "About Bornă: sources, licences and method"} description={s.meta_about}>
   <main class="page about" data-strings={JSON.stringify(s)} id="about">
     <h1>{ro ? "Despre Bornă" : "About Bornă"}</h1>
     <p class="lead">

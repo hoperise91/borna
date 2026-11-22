@@ -11,6 +11,7 @@ import {
   CATEGORY_COLOR, CATEGORY_ORDER, DATA_URL, QUALITY_COLOR, SURFACE_COLOR, type IndexRow,
   type LonLat, type Quality, type Road, fetchIndex, fetchRoad, fold, formatKm, formatLength,
   locate, measure, parseQuery, qualityShares, fetchSources, surfaceClass, type Event,
+  roadHref,
 } from "../lib/roads";
 import { liveStrip, stripBands } from "../lib/strip";
 import {
@@ -879,7 +880,7 @@ export function initMap(root: HTMLElement) {
         ${stripLabels.length ? `<div class="mini-strip" id="mini-strip"></div>
         <div class="mini-legend">${stripLabels.map((l) => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}` : ""}
       <div class="actions">
-        <a class="btn primary" href="${roadUrl}?r=${encodeURIComponent(road.key)}">${esc(s.road_page)} →</a>
+        <a class="btn primary" href="${roadHref(roadUrl, lang, road.key, road.category)}">${esc(s.road_page)} →</a>
         ${onMap ? `<button type="button" class="btn" id="fit">${esc(s.zoom_to_road)}</button>` : ""}
       </div>
       <p class="src">${esc(s.sources)}: ${sources.map(esc).join(" · ")}</p></section>`;

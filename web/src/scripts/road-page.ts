@@ -7,7 +7,7 @@ import { countyName } from "../lib/counties";
 import type { Strings } from "../lib/i18n";
 import {
   CATEGORY_COLOR, type Quality, type Road, type Source, fetchRoad, fetchSources,
-  formatKm, formatLength, parseQuery, qualityShares,
+  formatKm, formatLength, hasStaticPage, parseQuery, qualityShares,
 } from "../lib/roads";
 import { liveStrip } from "../lib/strip";
 
@@ -22,7 +22,12 @@ export async function initRoadPage(root: HTMLElement) {
   const lang = root.dataset.lang!;
   const mapUrl = root.dataset.mapUrl!;
   const S = s as Record<string, string>;
-  const key = new URLSearchParams(location.search).get("r");
+  const roadUrl = root.dataset.roadUrl!;
+  const prerendered = !!root.dataset.key; // /drum/KEY/: the basics are already in the HTML
+  const key = root.dataset.key || new URLSearchParams(location.search).get("r");
+  // Old links (/drum/?r=KEY) move to the road's own page, which search engines index.
+  const staticUrl = (k: string) => `${roadUrl}${encodeURIComponent(k)}/`;
+  if (!prerendered && key && lang === "ro") { location.replace(staticUrl(key)); return; }
 
   let road: Road;
   let sources: Source[] = [];
@@ -30,11 +35,13 @@ export async function initRoadPage(root: HTMLElement) {
     if (!key) throw new Error("no road");
     [road, sources] = await Promise.all([fetchRoad(key), fetchSources().catch(() => [])]);
   } catch {
+    if (prerendered) { document.getElementById("road-loading")?.remove(); return; }
     root.innerHTML = `<p class="msg">${esc(s.road_not_found)}</p><p><a href="${mapUrl}">← ${esc(s.nav_map)}</a></p>`;
     return;
   }
+  if (!prerendered && hasStaticPage(lang, road.category)) { location.replace(staticUrl(road.key)); return; }
   const src = new Map(sources.map((x) => [x.id, x]));
-  document.title = `${road.ref}${road.county ? ` (${countyName(road.county)})` : ""} · Bornă`;
+  if (!prerendered) document.title = `${road.ref}${road.county ? ` (${countyName(road.county)})` : ""} · Bornă`;
 
   const onMap = road.segments.length > 0;
   const shares = qualityShares(road);
@@ -45,7 +52,7 @@ export async function initRoadPage(root: HTMLElement) {
     <p class="small"><a href="${mapUrl}?r=${encodeURIComponent(road.key)}">← ${esc(s.open_on_map)}</a></p>
     <div class="rp-head">
       <span class="shield lg" data-cat="${esc(road.category)}">${esc(road.ref)}</span>
-      <div><h1>${esc(S[`cat_${road.category}`] ?? road.category)}</h1>
+      <div><h1><span class="visually-hidden">${esc(road.ref)} · </span>${esc(S[`cat_${road.category}`] ?? road.category)}</h1>
         <div class="muted">${esc(road.county ? countyName(road.county) : s.national_road)}</div></div>
     </div>
     <p class="rp-route">${esc(road.route ?? "")}</p>

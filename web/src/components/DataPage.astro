@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import { routes, strings, type Lang } from "../lib/i18n";
 import { DATA_URL } from "../lib/roads";
+import { dataset } from "../lib/seo";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -14,8 +15,33 @@ const files = [
   ["qa_gaps_by_county.csv", ro ? "Drumuri din registru lipsă sau incomplete în OpenStreetMap" : "Register roads missing or incomplete in OpenStreetMap", "ODbL"],
   ["qa_osm_refs_not_in_register.csv", ro ? "Numere de drum din OpenStreetMap care nu apar în registru" : "OpenStreetMap road numbers missing from the register", "ODbL"],
 ];
+const dataBase = DATA_URL.startsWith("http") ? DATA_URL : "https://data.bornakm.ro";
+const ODBL = "https://opendatacommons.org/licenses/odbl/1-0/";
+const jsonLd = [
+  dataset({
+    name: ro ? "Rețeaua rutieră a României cu poziții kilometrice (Bornă)" : "Romania's road network with kilometre positions (Bornă)",
+    description: ro
+      ? "Rețeaua de drumuri publice a României (autostrăzi, drumuri naționale, județene și comunale) legată de pozițiile kilometrice oficiale din HG 540/2000, construită din OpenStreetMap, plus verificări pe județe."
+      : "Romania's public road network (motorways, national, county and communal roads) linked to the official kilometre positions of HG 540/2000, built from OpenStreetMap, with county-level checks.",
+    pagePath: routes[lang].data,
+    license: ODBL,
+    files: [
+      { url: `${dataBase}/borna.pmtiles`, format: "application/vnd.pmtiles" },
+      ...files.filter(([f]) => f.startsWith("qa_")).map(([f]) => ({ url: `${dataBase}/downloads/${f}`, format: "text/csv" })),
+    ],
+  }),
+  dataset({
+    name: ro ? "Registrul drumurilor județene și comunale HG 540/2000 (CSV)" : "HG 540/2000 county and communal road register (CSV)",
+    description: ro
+      ? "Anexele HG 540/2000 transcrise rând cu rând: fiecare drum județean și comunal din România, cu traseu, poziții kilometrice de început și sfârșit și lungime."
+      : "The annexes of HG 540/2000 transcribed row by row: every county and communal road in Romania with its route, start and end kilometre positions and length.",
+    pagePath: routes[lang].data,
+    license: "https://creativecommons.org/publicdomain/mark/1.0/",
+    files: [{ url: `${dataBase}/downloads/hg540_register.csv`, format: "text/csv" }],
+  }),
+];
 ---
-<Base lang={lang} page="data" title={s.nav_data}>
+<Base lang={lang} page="data" title={ro ? "Date deschise: rețeaua rutieră a României" : "Open data: Romania's road network"} description={s.meta_data} jsonLd={jsonLd}>
   <main class="page">
     <h1>{s.nav_data}</h1>
     <p class="muted">
