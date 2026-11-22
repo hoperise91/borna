@@ -966,12 +966,12 @@ export function initMap(root: HTMLElement) {
           src = (b ?? t)?.[3];
           break;
         }
-        case "curve": { // no curve here = straight, as far as the geometry shows
+        case "curve": { // no curve here = straight; no curve data at all (old cached file) = "—"
           const c = ev("curve");
           if (c) {
             const p = parseCurve(c[2]);
             val = `${T[`curve_${p.side}`]}, R ≈ ${p.r} m (${T[`c_${p.cls}`]})`; src = c[3];
-          } else if (road.segments.length) { val = s.curve_straight; src = "osm"; }
+          } else if (road.attributes.curve) { val = s.curve_straight; src = "osm"; }
           break;
         }
         case "maxspeed": take(ev("maxspeed"), (v) => (/^\d+$/.test(v) ? `${v} km/h` : v)); break;
