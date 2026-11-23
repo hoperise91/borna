@@ -6,7 +6,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { FeatureCollection } from "geojson";
 import { Protocol } from "pmtiles";
 import { countiesSorted, countyName } from "../lib/counties";
-import type { Strings } from "../lib/i18n";
+import { MAPLIBRE_RO, type Strings } from "../lib/i18n";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, DATA_URL, QUALITY_COLOR, SURFACE_COLOR, type IndexRow,
   type LonLat, type Quality, type Road, fetchIndex, fetchRoad, fold, formatKm, formatLength,
@@ -117,6 +117,7 @@ export function initMap(root: HTMLElement) {
   let selData: FC = { type: "FeatureCollection", features: [] };
 
   const map = new maplibregl.Map({
+    locale: lang === "ro" ? MAPLIBRE_RO : undefined,
     container: root.querySelector<HTMLElement>("#map")!,
     style: basemapStyle(basemap),
     bounds: RO_BOUNDS,
@@ -127,7 +128,7 @@ export function initMap(root: HTMLElement) {
     },
   });
   if (import.meta.env.DEV) (window as unknown as { bornaMap: unknown }).bornaMap = map; // for testing
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-right");
 
   // ---- phones: the sidebar is a bottom sheet; the legend folds -------------------------------

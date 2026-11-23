@@ -335,3 +335,14 @@ const en: Strings = {
 };
 
 export const strings: Record<Lang, Strings> = { ro, en };
+
+/** MapLibre's own control tooltips in Romanian (English is its default). */
+export const MAPLIBRE_RO: Record<string, string> = {
+  "NavigationControl.ZoomIn": "Mărește",
+  "NavigationControl.ZoomOut": "Micșorează",
+  "NavigationControl.ResetBearing": "Rotește harta spre nord",
+  "GeolocateControl.FindMyLocation": "Arată poziția mea",
+  "GeolocateControl.LocationNotAvailable": "Poziția nu este disponibilă",
+  "FullscreenControl.Enter": "Ecran complet",
+  "FullscreenControl.Exit": "Ieși din ecran complet",
+};

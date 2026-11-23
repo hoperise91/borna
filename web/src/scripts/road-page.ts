@@ -4,7 +4,7 @@ import type { LngLatLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { countyName } from "../lib/counties";
-import type { Strings } from "../lib/i18n";
+import { MAPLIBRE_RO, type Strings } from "../lib/i18n";
 import {
   CATEGORY_COLOR, type Quality, type Road, type Source, fetchRoad, fetchSources,
   formatKm, formatLength, hasStaticPage, parseQuery, qualityShares,
@@ -113,6 +113,7 @@ export async function initRoadPage(root: HTMLElement) {
 
   maplibregl.setWorkerUrl(workerUrl);
   const map = new maplibregl.Map({
+    locale: lang === "ro" ? MAPLIBRE_RO : undefined,
     container: root.querySelector<HTMLElement>("#rp-map")!,
     style: BASEMAP,
     bounds: road.bbox ? [[road.bbox[0], road.bbox[1]], [road.bbox[2], road.bbox[3]]] : undefined,
@@ -120,7 +121,7 @@ export async function initRoadPage(root: HTMLElement) {
     attributionControl: { compact: true, customAttribution: "© OpenStreetMap contributors (ODbL) · Bornă" },
     cooperativeGestures: true,
   });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
   map.on("load", () => {
     map.addSource("road", {
       type: "geojson",
